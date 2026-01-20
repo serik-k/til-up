@@ -84,7 +84,7 @@ const onboardingStep = ref(0);
 const onboardingSeen = ref(false);
 
 const onboardingOpen = computed(() => onboardingStep.value >= 0);
-const interactionsLocked = computed(() => onboardingOpen.value); // когда открыт онбординг — блокируем взаимодействия
+const interactionsLocked = computed(() => onboardingStep.value >= 0);
 
 let ro: ResizeObserver | null = null;
 let windowResizeAttached = false;
@@ -428,7 +428,7 @@ function resumeRound() {
   if (onboardingOpen.value) return;
 
   gameState.value = 'running';
-  lastTs = safeNow(); // чтобы не было огромного dt после паузы
+  lastTs = safeNow();
   rafId = requestAnimationFrame(loop);
 }
 
@@ -445,15 +445,8 @@ function stopRound(showReward: boolean) {
   clearScheduledTimers();
   clearMicBounceTimer();
 
-  const now = safeNow();
-  const ttl = 50;
-
-  for (const b of bubbles.value) {
-    b.popped = true;
-    b.alive = false;
-    b.smile = false;
-    b.removeAt = now + ttl;
-  }
+  bubbles.value = [];
+  particles.value = [];
 
   if (showReward) {
     rewardText.value =
@@ -566,22 +559,22 @@ function setRoundSeconds(v: number) {
   saveSettings();
 }
 
-function openOnboardingIfNeeded() {
-  if (onboardingStep.value === -1) {
-    onboardingStep.value = 0;
-  } else if (onboardingStep.value < 0) {
-    onboardingStep.value = 0;
-  }
+const onboardingPausedGame = ref(false);
 
-  // сохраняем “откуда открыли”, чтобы вернуть фокус
+function openOnboardingIfNeeded() {
+  if (onboardingStep.value < 0) onboardingStep.value = 0;
+
   onboardingOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
   nextTick(() => {
     focusFirstInOnboarding();
   });
 
-  // во время онбординга ставим паузу (если игра идёт)
-  if (isRunning.value) pauseRound();
+  onboardingPausedGame.value = false;
+  if (isRunning.value) {
+    onboardingPausedGame.value = true;
+    pauseRound();
+  }
 }
 
 function nextOnboarding() {
@@ -601,6 +594,13 @@ function closeOnboarding(markSeen: boolean) {
     if (onboardingOpener) {
       onboardingOpener.focus();
       onboardingOpener = null;
+    }
+
+    if (onboardingPausedGame.value && isPaused.value && onboardingStep.value < 0) {
+      onboardingPausedGame.value = false;
+      resumeRound();
+    } else {
+      onboardingPausedGame.value = false;
     }
   });
 }
@@ -670,6 +670,14 @@ function handleOnboardingKeydown(e: KeyboardEvent) {
     }
   }
 }
+watch(
+  onboardingOpen,
+  (open) => {
+    if (open) document.addEventListener('keydown', handleOnboardingKeydown);
+    else document.removeEventListener('keydown', handleOnboardingKeydown);
+  },
+  { immediate: true }
+);
 
 watch(
   () => settings.roundSeconds,
@@ -705,15 +713,6 @@ function disableMic() {
   audio.stop();
 }
 
-function fallbackLoud() {
-  micBounce.value = true;
-  clearMicBounceTimer();
-  micBounceTimer = window.setTimeout(() => {
-    micBounce.value = false;
-    micBounceTimer = null;
-  }, 220);
-}
-
 function attachResizeObservers() {
   const el = containerRef.value;
   if (!el) return;
@@ -747,13 +746,9 @@ onMounted(async () => {
   if (!onboardingSeen.value && onboardingStep.value >= 0) {
     nextTick(() => focusFirstInOnboarding());
   }
-
-  document.addEventListener('keydown', handleOnboardingKeydown);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('keydown', handleOnboardingKeydown);
-
   if (ro) {
     ro.disconnect();
     ro = null;
@@ -1154,12 +1149,12 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- Mobile sticky bottom controls -->
-            <div class="sm:hidden">
+            <!-- Mobile controls (in-flow, not fixed) -->
+            <div class="mt-4 sm:hidden">
               <div
-                class="fixed bottom-0 left-0 right-0 z-30 border-t border-sky-200/70 bg-white/80 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur"
+                class="rounded-3xl border border-sky-200/70 bg-white/80 px-4 py-3 shadow-sm backdrop-blur"
               >
-                <div class="mx-auto flex max-w-6xl items-center gap-2">
+                <div class="flex items-center gap-2">
                   <button
                     type="button"
                     class="group relative inline-flex min-h-[44px] flex-1 items-center justify-center rounded-2xl border border-sky-200/70 bg-gradient-to-br from-sky-200 to-sky-100 px-5 py-3 font-extrabold text-slate-900 shadow-sm transition active:scale-[0.98] disabled:opacity-60"
@@ -1198,15 +1193,6 @@ onUnmounted(() => {
                   >
                     Стоп
                   </button>
-
-                  <button
-                    type="button"
-                    class="inline-flex min-h-[44px] w-[44px] items-center justify-center rounded-2xl border border-pink-200/70 bg-white/70 px-0 py-3 font-extrabold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98]"
-                    @click="openOnboardingIfNeeded"
-                    aria-label="Показать подсказки"
-                  >
-                    ?
-                  </button>
                 </div>
 
                 <div class="mt-2 flex items-center gap-2">
@@ -1244,6 +1230,80 @@ onUnmounted(() => {
 
             <!-- Mobile accordions -->
             <div class="mt-3 space-y-2 sm:hidden">
+              <details
+                class="overflow-hidden rounded-3xl border border-pink-200/70 bg-white/70 shadow-sm backdrop-blur"
+              >
+                <summary
+                  class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
+                >
+                  Микрофон
+                </summary>
+                <div class="space-y-3 px-4 pb-4">
+                  <p class="text-xs text-slate-600">
+                    Мы измеряем лишь уровень громкости. Никаких записей, распознавания речи и
+                    сохранения аудио.
+                  </p>
+
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      v-if="audio.state.value !== 'listening'"
+                      type="button"
+                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-gradient-to-br from-sky-200 to-sky-100 px-4 py-3 font-extrabold text-slate-900 shadow-sm transition active:scale-[0.98]"
+                      @click="enableMic"
+                    >
+                      Включить
+                    </button>
+
+                    <button
+                      v-else
+                      type="button"
+                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition active:scale-[0.98]"
+                      @click="disableMic"
+                    >
+                      Выключить
+                    </button>
+                  </div>
+
+                  <div>
+                    <div class="flex items-center justify-between">
+                      <p class="text-xs font-semibold text-slate-600">Шкала громкости</p>
+                      <p class="text-xs font-extrabold text-slate-900">
+                        {{ Math.round(audio.level.value * 100) }}%
+                      </p>
+                    </div>
+                    <div class="mt-2 h-3 overflow-hidden rounded-full bg-sky-100">
+                      <div
+                        class="h-full rounded-full bg-gradient-to-r from-sky-300 to-pink-300"
+                        :style="{ width: `${Math.round(audio.level.value * 100)}%` }"
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div class="flex items-center justify-between">
+                      <p class="text-xs font-semibold text-slate-600">Порог</p>
+                      <p class="text-xs font-extrabold text-slate-900">
+                        {{ Math.round(audio.threshold.value * 100) }}%
+                      </p>
+                    </div>
+                    <input
+                      class="mt-2 w-full accent-pink-400"
+                      type="range"
+                      min="0.05"
+                      max="0.5"
+                      step="0.01"
+                      :value="audio.threshold.value"
+                      @input="audio.setThreshold(Number(($event.target as HTMLInputElement).value))"
+                      aria-label="Порог громкости"
+                    />
+                  </div>
+
+                  <p v-if="audio.state.value === 'error'" class="text-xs text-slate-600">
+                    {{ audio.errorMessage.value }}
+                  </p>
+                </div>
+              </details>
+
               <details
                 class="overflow-hidden rounded-3xl border border-sky-200/70 bg-white/70 shadow-sm backdrop-blur"
               >
@@ -1393,20 +1453,23 @@ onUnmounted(() => {
                   </div>
                 </div>
               </details>
+            </div>
 
-              <details
-                class="overflow-hidden rounded-3xl border border-pink-200/70 bg-white/70 shadow-sm backdrop-blur"
+            <!-- Desktop/tablet controls (no accordions) -->
+            <div class="mt-4 hidden space-y-3 sm:block">
+              <!-- Tablet: 2 columns, Desktop: 1 column -->
+
+              <div
+                class="rounded-3xl border border-pink-200/70 bg-white/70 p-4 shadow-sm backdrop-blur"
               >
-                <summary
-                  class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
-                >
-                  Микрофон
-                </summary>
-                <div class="space-y-3 px-4 pb-4">
-                  <p class="text-xs text-slate-600">
-                    Мы измеряем лишь уровень громкости. Никаких записей, распознавания речи и
-                    сохранения аудио.
-                  </p>
+                <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p class="text-xs font-extrabold text-slate-900">Микрофон</p>
+                    <p class="mt-1 text-xs text-slate-600">
+                      Мы измеряем лишь уровень громкости. Никаких записей, распознавания речи и
+                      сохранения аудио.
+                    </p>
+                  </div>
 
                   <div class="flex flex-wrap gap-2">
                     <button
@@ -1426,61 +1489,48 @@ onUnmounted(() => {
                     >
                       Выключить
                     </button>
-
-                    <button
-                      type="button"
-                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-pink-200/70 bg-gradient-to-br from-pink-200 to-pink-100 px-4 py-3 font-extrabold text-slate-900 shadow-sm transition active:scale-[0.98]"
-                      @click="fallbackLoud"
-                      aria-label="Fallback громко"
-                    >
-                      ГРОМКО!
-                    </button>
                   </div>
-
-                  <div>
-                    <div class="flex items-center justify-between">
-                      <p class="text-xs font-semibold text-slate-600">Шкала громкости</p>
-                      <p class="text-xs font-extrabold text-slate-900">
-                        {{ Math.round(audio.level.value * 100) }}%
-                      </p>
-                    </div>
-                    <div class="mt-2 h-3 overflow-hidden rounded-full bg-sky-100">
-                      <div
-                        class="h-full rounded-full bg-gradient-to-r from-sky-300 to-pink-300"
-                        :style="{ width: `${Math.round(audio.level.value * 100)}%` }"
-                      ></div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div class="flex items-center justify-between">
-                      <p class="text-xs font-semibold text-slate-600">Порог</p>
-                      <p class="text-xs font-extrabold text-slate-900">
-                        {{ Math.round(audio.threshold.value * 100) }}%
-                      </p>
-                    </div>
-                    <input
-                      class="mt-2 w-full accent-pink-400"
-                      type="range"
-                      min="0.05"
-                      max="0.5"
-                      step="0.01"
-                      :value="audio.threshold.value"
-                      @input="audio.setThreshold(Number(($event.target as HTMLInputElement).value))"
-                      aria-label="Порог громкости"
-                    />
-                  </div>
-
-                  <p v-if="audio.state.value === 'error'" class="text-xs text-slate-600">
-                    {{ audio.errorMessage.value }}
-                  </p>
                 </div>
-              </details>
-            </div>
 
-            <!-- Desktop/tablet controls (no accordions) -->
-            <div class="mt-4 hidden space-y-3 sm:block">
-              <!-- Tablet: 2 columns, Desktop: 1 column -->
+                <div class="mt-3">
+                  <div class="flex items-center justify-between">
+                    <p class="text-xs font-semibold text-slate-600">Шкала громкости</p>
+                    <p class="text-xs font-extrabold text-slate-900">
+                      {{ Math.round(audio.level.value * 100) }}%
+                    </p>
+                  </div>
+                  <div class="mt-2 h-3 overflow-hidden rounded-full bg-sky-100">
+                    <div
+                      class="h-full rounded-full bg-gradient-to-r from-sky-300 to-pink-300"
+                      :style="{ width: `${Math.round(audio.level.value * 100)}%` }"
+                    ></div>
+                  </div>
+                </div>
+
+                <div class="mt-4">
+                  <div class="flex items-center justify-between">
+                    <p class="text-xs font-semibold text-slate-600">Порог</p>
+                    <p class="text-xs font-extrabold text-slate-900">
+                      {{ Math.round(audio.threshold.value * 100) }}%
+                    </p>
+                  </div>
+                  <input
+                    class="mt-2 w-full accent-pink-400"
+                    type="range"
+                    min="0.05"
+                    max="0.5"
+                    step="0.01"
+                    :value="audio.threshold.value"
+                    @input="audio.setThreshold(Number(($event.target as HTMLInputElement).value))"
+                    aria-label="Порог громкости"
+                  />
+                </div>
+
+                <p v-if="audio.state.value === 'error'" class="mt-2 text-xs text-slate-600">
+                  {{ audio.errorMessage.value }}
+                </p>
+              </div>
+
               <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-1">
                 <div
                   class="rounded-3xl border border-sky-200/70 bg-white/70 p-4 shadow-sm backdrop-blur"
@@ -1612,87 +1662,6 @@ onUnmounted(() => {
 
                 <p class="mt-3 text-[12px] text-slate-500">
                   В “Смешанном” режиме цель остаётся выбранной — это сохраняет фокус “Лови звук”.
-                </p>
-              </div>
-
-              <div
-                class="rounded-3xl border border-pink-200/70 bg-white/70 p-4 shadow-sm backdrop-blur"
-              >
-                <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <p class="text-xs font-extrabold text-slate-900">Микрофон</p>
-                    <p class="mt-1 text-xs text-slate-600">
-                      Мы измеряем лишь уровень громкости. Никаких записей, распознавания речи и
-                      сохранения аудио.
-                    </p>
-                  </div>
-
-                  <div class="flex flex-wrap gap-2">
-                    <button
-                      v-if="audio.state.value !== 'listening'"
-                      type="button"
-                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-gradient-to-br from-sky-200 to-sky-100 px-4 py-3 font-extrabold text-slate-900 shadow-sm transition active:scale-[0.98]"
-                      @click="enableMic"
-                    >
-                      Включить
-                    </button>
-
-                    <button
-                      v-else
-                      type="button"
-                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition active:scale-[0.98]"
-                      @click="disableMic"
-                    >
-                      Выключить
-                    </button>
-
-                    <button
-                      type="button"
-                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-pink-200/70 bg-gradient-to-br from-pink-200 to-pink-100 px-4 py-3 font-extrabold text-slate-900 shadow-sm transition active:scale-[0.98]"
-                      @click="fallbackLoud"
-                      aria-label="Fallback громко"
-                    >
-                      ГРОМКО!
-                    </button>
-                  </div>
-                </div>
-
-                <div class="mt-3">
-                  <div class="flex items-center justify-between">
-                    <p class="text-xs font-semibold text-slate-600">Шкала громкости</p>
-                    <p class="text-xs font-extrabold text-slate-900">
-                      {{ Math.round(audio.level.value * 100) }}%
-                    </p>
-                  </div>
-                  <div class="mt-2 h-3 overflow-hidden rounded-full bg-sky-100">
-                    <div
-                      class="h-full rounded-full bg-gradient-to-r from-sky-300 to-pink-300"
-                      :style="{ width: `${Math.round(audio.level.value * 100)}%` }"
-                    ></div>
-                  </div>
-                </div>
-
-                <div class="mt-4">
-                  <div class="flex items-center justify-between">
-                    <p class="text-xs font-semibold text-slate-600">Порог</p>
-                    <p class="text-xs font-extrabold text-slate-900">
-                      {{ Math.round(audio.threshold.value * 100) }}%
-                    </p>
-                  </div>
-                  <input
-                    class="mt-2 w-full accent-pink-400"
-                    type="range"
-                    min="0.05"
-                    max="0.5"
-                    step="0.01"
-                    :value="audio.threshold.value"
-                    @input="audio.setThreshold(Number(($event.target as HTMLInputElement).value))"
-                    aria-label="Порог громкости"
-                  />
-                </div>
-
-                <p v-if="audio.state.value === 'error'" class="mt-2 text-xs text-slate-600">
-                  {{ audio.errorMessage.value }}
                 </p>
               </div>
             </div>
