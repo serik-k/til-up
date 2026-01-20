@@ -313,7 +313,7 @@ function addParticles(clientX: number, clientY: number) {
   }
 }
 
-function isTarget(b: Bubble): boolean {
+function isCorrectBubble(b: Bubble): boolean {
   return b.letter === settings.targetSound;
 }
 
@@ -332,7 +332,13 @@ function noFailFeedback(b: Bubble) {
   }, hintMs);
 }
 
-function popBubble(b: Bubble, clientX: number, clientY: number) {
+function applyWrongTapFeedback(b: Bubble) {
+  streak.value = 0;
+  rewardText.value = '';
+  noFailFeedback(b);
+}
+
+function popBubbleAsCorrect(b: Bubble, clientX: number, clientY: number) {
   if (!isRunning.value) return;
   if (interactionsLocked.value) return;
   if (!b.alive) return;
@@ -340,33 +346,20 @@ function popBubble(b: Bubble, clientX: number, clientY: number) {
 
   b.popped = true;
 
-  const wasTarget = isTarget(b);
+  const now = safeNow();
+  const popMs = reducedMotion.value ? 0 : 220;
 
-  if (wasTarget) {
-    const now = safeNow();
-    const popMs = reducedMotion.value ? 0 : 220;
+  b.removeAt = now + popMs;
 
-    b.removeAt = now + popMs;
+  score.value += 1;
+  streak.value += 1;
+  rewardText.value = '';
 
-    score.value += 1;
-    streak.value += 1;
-    rewardText.value = '';
+  addParticles(clientX, clientY);
 
-    addParticles(clientX, clientY);
-
-    schedule(() => {
-      b.alive = false;
-    }, popMs);
-  } else {
-    if (!freezeUsed.value && streak.value >= 4) {
-      freezeUsed.value = true;
-      rewardText.value = 'Серия заморожена — продолжаем!';
-    } else {
-      streak.value = 0;
-    }
-
-    noFailFeedback(b);
-  }
+  schedule(() => {
+    b.alive = false;
+  }, popMs);
 }
 
 async function ensureSizeBeforeLoop() {
@@ -418,9 +411,6 @@ function pauseRound() {
     cancelAnimationFrame(rafId);
     rafId = null;
   }
-
-  // таймеры pop/hint оставляем (мелкая анимационная логика завершится сама),
-  // но основной loop остановлен => время и движение не идут.
 }
 
 function resumeRound() {
@@ -526,9 +516,13 @@ function onBubblePointerDown(b: Bubble, e: PointerEvent) {
 
   e.preventDefault();
   e.stopPropagation();
-  popBubble(b, e.clientX, e.clientY);
-}
 
+  if (isCorrectBubble(b)) {
+    popBubbleAsCorrect(b, e.clientX, e.clientY);
+  } else {
+    applyWrongTapFeedback(b);
+  }
+}
 function toggleSound(sound: Sound) {
   const set = new Set(settings.selectedSounds);
   if (set.has(sound)) set.delete(sound);
@@ -705,9 +699,7 @@ watch(
 async function enableMic() {
   try {
     await audio.start();
-  } catch {
-    // state/errorMessage handled in composable
-  }
+  } catch {}
 }
 
 function disableMic() {
@@ -1093,8 +1085,8 @@ onUnmounted(() => {
                         2) Если нажал не туда — это не ошибка. Будет мягкая подсказка.
                       </p>
                       <p v-else class="text-sm font-semibold text-slate-900">
-                        3) Можно включить микрофон — он измеряет только громкость. Нет записи и
-                        распознавания речи.
+                        3) Можно включить микрофон: мы распознаём произнесённые “Р”, “Л”, “Ш”, чтобы
+                        лопать пузыри. Мы не сохраняем аудио — распознавание работает в браузере.
                       </p>
                     </div>
 
@@ -1234,8 +1226,8 @@ onUnmounted(() => {
                 </summary>
                 <div class="space-y-3 px-4 pb-4">
                   <p class="text-xs text-slate-600">
-                    Мы измеряем лишь уровень громкости. Никаких записей, распознавания речи и
-                    сохранения аудио.
+                    Мы используем микрофон для распознавания “Р”, “Л”, “Ш”, чтобы лопать пузыри.
+                    Аудио не сохраняется.
                   </p>
 
                   <div class="flex flex-wrap gap-2">
