@@ -80,11 +80,12 @@ const audio = injectedAudio ?? useAudioLevel();
 const micBounce = ref(false);
 let micBounceTimer: number | null = null;
 
-const onboardingStep = ref(0);
+const onboardingStep = ref(-1);
 const onboardingSeen = ref(false);
 
 const onboardingOpen = computed(() => onboardingStep.value >= 0);
 const interactionsLocked = computed(() => onboardingStep.value >= 0);
+const onboardingTrapActive = computed(() => onboardingOpen.value && !!onboardingModalRef.value);
 
 let ro: ResizeObserver | null = null;
 let windowResizeAttached = false;
@@ -104,7 +105,6 @@ function safeNow() {
 }
 
 function uid(prefix: string) {
-  // crypto.randomUUID() предпочтительнее, но оставляем совместимость
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return `${prefix}_${(crypto as Crypto).randomUUID()}`;
   }
@@ -670,10 +670,11 @@ function handleOnboardingKeydown(e: KeyboardEvent) {
     }
   }
 }
+
 watch(
-  onboardingOpen,
-  (open) => {
-    if (open) document.addEventListener('keydown', handleOnboardingKeydown);
+  onboardingTrapActive,
+  (active) => {
+    if (active) document.addEventListener('keydown', handleOnboardingKeydown);
     else document.removeEventListener('keydown', handleOnboardingKeydown);
   },
   { immediate: true }
@@ -857,13 +858,6 @@ onUnmounted(() => {
             <p class="text-sm font-extrabold text-slate-900" aria-live="polite">
               {{ rewardText }}
             </p>
-          </div>
-
-          <div
-            v-if="isPaused"
-            class="mt-3 rounded-2xl border border-sky-200/60 bg-white/70 px-4 py-3 shadow-sm backdrop-blur"
-          >
-            <p class="text-sm font-semibold text-slate-700">Пауза</p>
           </div>
         </header>
 
