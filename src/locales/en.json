@@ -1,0 +1,86 @@
+{
+  "app": {
+    "brand": "Til Up",
+    "tagline": "speech game for kids 3–9",
+    "mode": "Mode",
+    "modeLabel": "Mode",
+    "modeAria": "Mode switch. Current: {mode}",
+    "kids": "Kids",
+    "parents": "Parents",
+    "kidsMode": "Kids",
+    "parentsMode": "Parents",
+    "holdHint": "(hold)",
+    "holdAria": "Switch mode. Current: {mode}. Hold the button to enter Parents mode.",
+    "holdAlmost": "Almost there — keep holding",
+    "backKids": "← Kids",
+    "backToKids": "← Kids",
+    "backToKidsAria": "Back to Kids mode",
+    "footer": "Til Up — homepage prototype. Focus: kid-friendly UX and parent trust."
+  },
+  "hero": {
+    "kidsBadge": "Playful speech practice",
+    "kidsTitle": "Let’s play and speak clearly",
+    "kidsSubtitle": "Short R / L / SH sound practice. No stress or punishment — only support, smiles, and progress.",
+    "startPlay": "Start the game",
+    "startPlayAria": "Start the mini-game",
+    "noFailTitle": "No-fail",
+    "noFailSubtitle": "No mistakes — just gentle hints",
+    "mini1Title": "30–60 sec",
+    "mini1Text": "short session",
+    "mini2Title": "Tap",
+    "mini2Text": "one big button",
+    "mini3Title": "Reward",
+    "mini3Text": "stars for trying",
+    "parentSub": "Playful practice for R / L / SH sounds. No punishment for mistakes — only support and progress.",
+    "ctaPlay": "Play",
+    "ctaStickers": "Stickers",
+    "forParentsTitle": "For parents",
+    "forParentsText": "15–20 min screening. Recommendations and a practice plan. No cloud sharing without consent."
+  },
+  "game": {
+    "title": "Sound Pop — mini game",
+    "subtitle": "Try speaking louder or clapping — the game reacts to sound. We do not recognize speech and we do not store audio.",
+    "openTikTok": "Watch on TikTok",
+    "tiktokAria": "Open TikTok exercises"
+  },
+  "kids": {
+    "parentsHintTitle": "For parents",
+    "parentsHintText": "To see the method, safety, and booking — hold the mode button at the top or tap with two fingers."
+  },
+  "parents": {
+    "title": "For parents",
+    "subtitle": "Method, safety, and how sessions work. Fastest contact is WhatsApp.",
+    "safetyNote": "No punishment or comparisons. Privacy first.",
+    "ctaInstagram": "Instagram: cases",
+    "ctaBook": "Book",
+    "bookAria": "Book a screening",
+    "socialAria": "Open {name}",
+    "card1Title": "Method",
+    "card1Text": "Short sessions, gradual steps, gentle hints.",
+    "card2Title": "Safety",
+    "card2Text": "Child data stays under parent control. No hidden recordings.",
+    "card3Title": "10–15 minutes",
+    "card3Text": "Daily habit without overload.",
+    "card4Title": "Progress",
+    "card4Text": "Clear steps and small wins you can see.",
+    "bottomTitle": "Fast contact",
+    "bottomText": "Message us on WhatsApp or explore TikTok exercises.",
+    "disclaimer": "Prototype. Links point to official social sites — we will connect your accounts later."
+  },
+  "social": {
+    "instagram": "Instagram",
+    "whatsapp": "WhatsApp",
+    "tiktok": "TikTok",
+    "instagramHint": "cases & reviews",
+    "whatsappHint": "quick question",
+    "tiktokHint": "short exercises",
+    "openAria": "Open {name}",
+    "dockAria": "Quick social links",
+    "dockTitle": "We’re here",
+    "dockSubtitle": "Instagram • WhatsApp • TikTok"
+  },
+  "seo": {
+    "title": "Til Up — speech therapy game for kids 3–9",
+    "description": "Playful R/L/SH practice: short sessions, no-fail UX, privacy-first design, and parent-friendly screening."
+  }
+}
