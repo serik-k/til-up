@@ -20,15 +20,28 @@ function startPlay() {
 </script>
 
 <template>
-  <section class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-100 via-white to-pink-100 border border-ink/10 shadow-soft">
+  <section
+    class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-100 via-white to-pink-100 border border-ink/10 shadow-soft"
+  >
     <!-- decorative blobs -->
-    <div aria-hidden="true" class="pointer-events-none absolute -top-12 -left-14 size-72 rounded-full bg-blue-300/35 blur-3xl" />
-    <div aria-hidden="true" class="pointer-events-none absolute -bottom-16 -right-10 size-80 rounded-full bg-pink-300/40 blur-3xl" />
-    <div aria-hidden="true" class="pointer-events-none absolute top-8 right-10 size-28 rounded-full bg-yellow-300/55 blur-2xl" />
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute -top-12 -left-14 size-72 rounded-full bg-blue-300/35 blur-3xl"
+    />
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute -bottom-16 -right-10 size-80 rounded-full bg-pink-300/40 blur-3xl"
+    />
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute top-8 right-10 size-28 rounded-full bg-yellow-300/55 blur-2xl"
+    />
 
     <div class="relative grid items-center gap-8 px-5 py-8 sm:px-10 sm:py-10 lg:grid-cols-2">
       <div>
-        <div class="inline-flex items-center gap-2 rounded-2xl bg-white/70 backdrop-blur border border-ink/10 px-4 py-2 shadow-sm">
+        <div
+          class="inline-flex items-center gap-2 rounded-2xl bg-white/70 backdrop-blur border border-ink/10 px-4 py-2 shadow-sm"
+        >
           <span class="size-2.5 rounded-full bg-mint-300" />
           <p class="text-xs font-semibold text-ink/70">{{ t('hero.kidsBadge') }}</p>
         </div>
@@ -54,7 +67,9 @@ function startPlay() {
             <span aria-hidden="true" class="til-spark" :class="{ 'til-spark-on': pressed }">★</span>
           </button>
 
-          <div class="rounded-2xl bg-white/70 backdrop-blur border border-ink/10 px-4 py-3 shadow-sm">
+          <div
+            class="rounded-2xl bg-white/70 backdrop-blur border border-ink/10 px-4 py-3 shadow-sm"
+          >
             <p class="text-sm font-semibold text-ink">{{ t('hero.noFailTitle') }}</p>
             <p class="text-xs text-ink/65 mt-1">{{ t('hero.noFailSubtitle') }}</p>
           </div>
@@ -66,7 +81,9 @@ function startPlay() {
       </div>
 
       <div class="relative">
-        <div class="rounded-3xl bg-white/70 backdrop-blur border border-ink/10 shadow-soft p-4 sm:p-6">
+        <div
+          class="rounded-3xl bg-white/70 backdrop-blur border border-ink/10 shadow-soft p-4 sm:p-6"
+        >
           <Mascot />
           <div class="mt-4 grid grid-cols-3 gap-2">
             <div class="til-mini-card bg-blue-100">
@@ -91,7 +108,7 @@ function startPlay() {
 <style scoped>
 .shadow-soft {
   box-shadow:
-    0 20px 60px rgba(15, 23, 42, 0.10),
+    0 20px 60px rgba(15, 23, 42, 0.1),
     0 4px 18px rgba(15, 23, 42, 0.08);
 }
 
@@ -104,7 +121,9 @@ function startPlay() {
   padding: 14px 18px;
   min-height: 54px;
   font-weight: 800;
-  transition: transform 140ms ease, box-shadow 140ms ease;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
   user-select: none;
 }
 
@@ -134,7 +153,7 @@ function startPlay() {
   height: 28px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
   transform: translateY(0);
   transition: transform 180ms ease;
 }
@@ -146,13 +165,13 @@ function startPlay() {
 .til-mini-card {
   border-radius: 18px;
   padding: 12px;
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
 }
 
 .til-mini-title {
   font-weight: 900;
   font-size: 12px;
-  color: rgba(46, 46, 56, 0.90);
+  color: rgba(46, 46, 56, 0.9);
 }
 
 .til-mini-text {

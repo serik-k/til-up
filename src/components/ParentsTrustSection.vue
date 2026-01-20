@@ -22,19 +22,30 @@ function book() {
   <section class="mt-10 sm:mt-14" aria-labelledby="parents-title">
     <div class="rounded-3xl bg-white border border-ink/10 shadow-soft overflow-hidden">
       <div class="relative px-5 py-8 sm:px-10 sm:py-10">
-        <div aria-hidden="true" class="pointer-events-none absolute -top-10 -right-12 size-72 rounded-full bg-blue-300/20 blur-3xl" />
-        <div aria-hidden="true" class="pointer-events-none absolute -bottom-12 -left-14 size-72 rounded-full bg-pink-300/20 blur-3xl" />
+        <div
+          aria-hidden="true"
+          class="pointer-events-none absolute -top-10 -right-12 size-72 rounded-full bg-blue-300/20 blur-3xl"
+        />
+        <div
+          aria-hidden="true"
+          class="pointer-events-none absolute -bottom-12 -left-14 size-72 rounded-full bg-pink-300/20 blur-3xl"
+        />
 
         <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
           <div class="max-w-[60ch]">
-            <h2 id="parents-title" class="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink">
+            <h2
+              id="parents-title"
+              class="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink"
+            >
               {{ t('parents.title') }}
             </h2>
             <p class="mt-3 text-ink/70 leading-relaxed">
               {{ t('parents.subtitle') }}
             </p>
 
-            <div class="mt-5 inline-flex items-center gap-2 rounded-2xl bg-blue-100 border border-ink/10 px-4 py-2">
+            <div
+              class="mt-5 inline-flex items-center gap-2 rounded-2xl bg-blue-100 border border-ink/10 px-4 py-2"
+            >
               <span class="size-2.5 rounded-full bg-mint-300" aria-hidden="true" />
               <p class="text-xs font-semibold text-ink/70">{{ t('parents.safetyNote') }}</p>
             </div>
@@ -51,7 +62,12 @@ function book() {
               {{ t('parents.ctaInstagram') }}
             </a>
 
-            <button type="button" class="til-btn-primary" @click="book" :aria-label="t('parents.bookAria')">
+            <button
+              type="button"
+              class="til-btn-primary"
+              @click="book"
+              :aria-label="t('parents.bookAria')"
+            >
               {{ t('parents.ctaBook') }}
             </button>
           </div>
@@ -65,7 +81,9 @@ function book() {
           </div>
         </div>
 
-        <div class="mt-8 rounded-3xl bg-gradient-to-br from-blue-100 via-white to-pink-100 border border-ink/10 p-5 sm:p-6">
+        <div
+          class="mt-8 rounded-3xl bg-gradient-to-br from-blue-100 via-white to-pink-100 border border-ink/10 p-5 sm:p-6"
+        >
           <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div class="max-w-[62ch]">
               <p class="text-lg font-extrabold text-ink">{{ t('parents.bottomTitle') }}</p>
@@ -105,13 +123,13 @@ function book() {
 <style scoped>
 .shadow-soft {
   box-shadow:
-    0 24px 70px rgba(15, 23, 42, 0.10),
+    0 24px 70px rgba(15, 23, 42, 0.1),
     0 6px 20px rgba(15, 23, 42, 0.08);
 }
 
 .til-card {
   border-radius: 22px;
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(8px);
   padding: 16px;
@@ -125,7 +143,7 @@ function book() {
   justify-content: center;
   border-radius: 16px;
   background: rgba(126, 200, 255, 0.25);
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
   font-size: 20px;
 }
 
@@ -141,9 +159,11 @@ function book() {
   border: 1px solid rgba(46, 46, 56, 0.12);
   color: rgba(46, 46, 56, 0.95);
   box-shadow:
-    0 12px 32px rgba(126, 200, 255, 0.20),
-    0 10px 26px rgba(255, 214, 232, 0.20);
-  transition: transform 140ms ease, box-shadow 140ms ease;
+    0 12px 32px rgba(126, 200, 255, 0.2),
+    0 10px 26px rgba(255, 214, 232, 0.2);
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .til-btn-primary:active {
@@ -159,9 +179,11 @@ function book() {
   min-height: 52px;
   font-weight: 900;
   background: rgba(234, 246, 255, 0.85);
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
   color: rgba(46, 46, 56, 0.85);
-  transition: transform 140ms ease, box-shadow 140ms ease;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .til-btn-secondary:active {
@@ -176,7 +198,7 @@ function book() {
   padding: 12px 14px;
   min-height: 48px;
   font-weight: 900;
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
   background: rgba(255, 255, 255, 0.8);
   transition: transform 140ms ease;
 }

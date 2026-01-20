@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from 'vue';
+import { computed, defineAsyncComponent, defineComponent, h, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import CustomCursor from '../components/CustomCursor.vue';
@@ -18,28 +18,49 @@ import { persistLocale } from './i18n';
 const { t, locale } = useI18n();
 useSeo({ t, locale } as any);
 
-const SoundPopGame = defineAsyncComponent(() => import('../components/SoundPopGame.vue'));
-
 const { reducedMotion } = useReducedMotion();
 const { isCoarse } = usePointerCoarse();
-
 const cursorEnabled = computed(() => !isCoarse.value && !reducedMotion());
 
 type Mode = 'kids' | 'parents';
-const mode = ref<Mode>('kids');
+const mode = ref<Mode>('parents');
 const isKids = computed(() => mode.value === 'kids');
 
-// parent gate: long-press to switch (no accidental taps for kids)
 const holding = ref(false);
 const holdProgress = ref(0);
 const holdMs = 1400;
-let holdTimer: number | null = null;
+
 let holdRaf: number | null = null;
 let holdStart = 0;
 
-function startHoldToParents() {
-  if (mode.value === 'parents') return;
+const targetMode = ref<Mode | null>(null);
+
+const holdPointerId = ref<number | null>(null);
+const holdStartX = ref(0);
+const holdStartY = ref(0);
+const moveCancelPx = 12;
+
+function lerp(a: number, b: number, k: number) {
+  return a + (b - a) * k;
+}
+
+function stopHold() {
+  holding.value = false;
+  holdProgress.value = 0;
+  targetMode.value = null;
+  holdPointerId.value = null;
+
+  if (holdRaf !== null) {
+    window.cancelAnimationFrame(holdRaf);
+    holdRaf = null;
+  }
+}
+
+function startHoldToggleMode() {
   if (holding.value) return;
+
+  const next: Mode = mode.value === 'kids' ? 'parents' : 'kids';
+  targetMode.value = next;
 
   holding.value = true;
   holdProgress.value = 0;
@@ -50,37 +71,68 @@ function startHoldToParents() {
     holdProgress.value = Math.min(1, elapsed / holdMs);
 
     if (elapsed >= holdMs) {
+      const to = targetMode.value;
       stopHold();
-      mode.value = 'parents';
+      if (to) mode.value = to;
       return;
     }
+
     holdRaf = window.requestAnimationFrame(tick);
   };
 
   holdRaf = window.requestAnimationFrame(tick);
+}
 
-  holdTimer = window.setTimeout(() => {
+function onHoldDown(e: PointerEvent) {
+  if (!e.isPrimary) return;
+
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+  holdPointerId.value = e.pointerId;
+  holdStartX.value = e.clientX;
+  holdStartY.value = e.clientY;
+
+  try {
+    (e.currentTarget as HTMLElement | null)?.setPointerCapture?.(e.pointerId);
+  } catch {
+    // ignore
+  }
+
+  startHoldToggleMode();
+}
+
+function onHoldMove(e: PointerEvent) {
+  if (!holding.value) return;
+  if (holdPointerId.value === null) return;
+  if (e.pointerId !== holdPointerId.value) return;
+
+  const dx = e.clientX - holdStartX.value;
+  const dy = e.clientY - holdStartY.value;
+  const dist = Math.hypot(dx, dy);
+
+  if (dist > moveCancelPx) {
     stopHold();
-    mode.value = 'parents';
-  }, holdMs + 50);
-}
-
-function stopHold() {
-  holding.value = false;
-  holdProgress.value = 0;
-  if (holdTimer !== null) {
-    window.clearTimeout(holdTimer);
-    holdTimer = null;
-  }
-  if (holdRaf !== null) {
-    window.cancelAnimationFrame(holdRaf);
-    holdRaf = null;
   }
 }
 
-function backToKids() {
+function onHoldUp(e?: PointerEvent) {
+  if (e?.currentTarget && typeof e.pointerId === 'number') {
+    try {
+      (e.currentTarget as HTMLElement | null)?.releasePointerCapture?.(e.pointerId);
+    } catch {
+      // ignore
+    }
+  }
   stopHold();
-  mode.value = 'kids';
+}
+
+function onKeyDownStart(e: KeyboardEvent) {
+  if ((e as any).repeat) return;
+  startHoldToggleMode();
+}
+
+function onKeyUpStop() {
+  stopHold();
 }
 
 function setLocale(v: AppLocale) {
@@ -97,38 +149,88 @@ function scrollToGame() {
   el.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
 }
 
+const GameLoading = defineComponent({
+  name: 'GameLoading',
+  setup() {
+    return () => h('div', { class: 'til-skeleton', 'aria-hidden': 'true' });
+  },
+});
+
+const GameError = defineComponent({
+  name: 'GameError',
+  props: {
+    error: { type: Object, required: false },
+    retry: { type: Function as unknown as () => () => void, required: true },
+    attempts: { type: Number, required: true },
+  },
+  setup(props) {
+    return () =>
+      h(
+        'div',
+        {
+          class:
+            'rounded-3xl border border-ink/10 bg-white/80 backdrop-blur px-5 py-6 sm:px-7 sm:py-7',
+          role: 'alert',
+        },
+        [
+          h(
+            'p',
+            { class: 'text-base font-extrabold tracking-tight text-ink' },
+            'Не удалось загрузить игру'
+          ),
+          h(
+            'p',
+            { class: 'mt-2 text-sm leading-relaxed text-ink/70' },
+            'Проверьте интернет и попробуйте ещё раз.'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'til-chip-btn til-chip-btn--xs sm:til-chip-btn--xs-reset mt-4',
+              onClick: () => props.retry(),
+            },
+            props.attempts >= 3 ? 'Попробовать снова' : 'Повторить загрузку'
+          ),
+        ]
+      );
+  },
+});
+
+const SoundPopGame = defineAsyncComponent({
+  loader: () => import('../components/SoundPopGame.vue'),
+  delay: 120,
+  timeout: 15000,
+  loadingComponent: GameLoading,
+  errorComponent: GameError,
+  onError(error, retry, fail, attempts) {
+    if (attempts <= 2) retry();
+    else fail();
+  },
+});
+
 function onBookDiagnostics() {
-  // For prototype: open WhatsApp (fastest conversion channel)
   window.open('https://www.whatsapp.com/', '_blank', 'noopener,noreferrer');
 }
 
-function onTouchStart(e: TouchEvent) {
-  if (mode.value === 'parents') return;
-  if (e.touches && e.touches.length >= 2) {
-    mode.value = 'parents';
-  }
-}
-
-onMounted(() => {
-  window.addEventListener('touchstart', onTouchStart, { passive: true });
-});
-
 onUnmounted(() => {
-  window.removeEventListener('touchstart', onTouchStart);
   stopHold();
 });
 
 const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.parentsMode')));
+const holdHint = computed(() =>
+  mode.value === 'kids' ? t('app.holdToParents') : t('app.holdToKids')
+);
 </script>
 
 <template>
-  <div class="min-h-screen bg-blue-100 text-ink">
+  <div class="min-h-screen bg-blue-100 text-ink overflow-x-hidden">
     <CustomCursor v-if="cursorEnabled" :enabled="true" />
 
     <div class="mx-auto max-w-[1120px] px-4 pt-5 pb-24 sm:pt-8">
-      <header class="flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <div class="til-logo" aria-hidden="true">
+      <header class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="til-logo shrink-0" aria-hidden="true">
             <span class="til-logo-dot" />
           </div>
           <div class="min-w-0">
@@ -137,8 +239,10 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
           </div>
         </div>
 
-        <div class="flex items-center gap-2">
-          <div class="hidden sm:flex items-center gap-1 rounded-2xl bg-white/70 backdrop-blur border border-ink/10 p-1">
+        <div class="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto min-w-0">
+          <div
+            class="hidden sm:flex items-center gap-1 rounded-2xl bg-white/70 backdrop-blur border border-ink/10 p-1 shrink-0"
+          >
             <button
               type="button"
               class="til-lang"
@@ -168,31 +272,68 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
             </button>
           </div>
 
-          <button
-            v-if="!isKids"
-            type="button"
-            class="til-chip-btn"
-            @click="backToKids"
-            :aria-label="t('app.backToKids')"
-          >
-            {{ t('app.backToKids') }}
-          </button>
+          <div class="sm:hidden w-full flex items-center justify-end">
+            <div class="til-langbar" aria-label="Language switcher">
+              <button
+                type="button"
+                class="til-lang til-lang--xs"
+                :class="{ 'til-lang--active': locale === 'ru' }"
+                @click="setLocale('ru')"
+                aria-label="Русский"
+              >
+                RU
+              </button>
+              <button
+                type="button"
+                class="til-lang til-lang--xs"
+                :class="{ 'til-lang--active': locale === 'en' }"
+                @click="setLocale('en')"
+                aria-label="English"
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                class="til-lang til-lang--xs"
+                :class="{ 'til-lang--active': locale === 'kz' }"
+                @click="setLocale('kz')"
+                aria-label="Қазақша"
+              >
+                KZ
+              </button>
+            </div>
+          </div>
 
-          <div class="til-mode" :aria-label="t('app.modeAria', { mode: modeLabel })">
-            <p class="text-[11px] font-semibold text-ink/55">{{ t('app.modeLabel') }}</p>
+          <div
+            class="til-mode w-full sm:w-auto"
+            :aria-label="`${t('app.modeLabel')}: ${modeLabel}. ${holdHint}`"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <p class="text-[11px] font-semibold text-ink/55">{{ t('app.modeLabel') }}</p>
+              <p class="text-[11px] font-semibold text-ink/45 truncate">
+                {{ holdHint }}
+              </p>
+            </div>
+
             <button
               type="button"
               class="til-mode-btn"
-              @mousedown="startHoldToParents"
-              @mouseup="stopHold"
-              @mouseleave="stopHold"
-              @touchstart.passive="startHoldToParents"
-              @touchend.passive="stopHold"
-              @touchcancel.passive="stopHold"
+              @pointerdown="onHoldDown"
+              @pointermove="onHoldMove"
+              @pointerup="onHoldUp"
+              @pointercancel="onHoldUp"
+              @pointerleave="onHoldUp"
+              @keydown.space.prevent="onKeyDownStart"
+              @keyup.space.prevent="onKeyUpStop"
+              @keydown.enter.prevent="onKeyDownStart"
+              @keyup.enter.prevent="onKeyUpStop"
             >
               <span class="til-mode-btn-text">{{ modeLabel }}</span>
               <span class="til-mode-progress" aria-hidden="true">
-                <span class="til-mode-progress-bar" :style="{ width: `${Math.round(holdProgress * 100)}%` }" />
+                <span
+                  class="til-mode-progress-bar"
+                  :style="{ width: `${Math.round(holdProgress * 100)}%` }"
+                />
               </span>
             </button>
           </div>
@@ -205,9 +346,12 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
         <section ref="gameAnchor" class="mt-10 sm:mt-14" aria-labelledby="game-title">
           <div class="rounded-3xl bg-white border border-ink/10 shadow-soft overflow-hidden">
             <div class="px-5 py-7 sm:px-10 sm:py-9">
-              <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-                <div>
-                  <h2 id="game-title" class="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink">
+              <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4 min-w-0">
+                <div class="min-w-0">
+                  <h2
+                    id="game-title"
+                    class="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink"
+                  >
                     {{ t('game.title') }}
                   </h2>
                   <p class="mt-2 text-ink/70 leading-relaxed max-w-[72ch]">
@@ -216,7 +360,7 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
                 </div>
 
                 <a
-                  class="til-chip-btn"
+                  class="til-chip-btn til-chip-btn--xs sm:til-chip-btn--xs-reset shrink-0"
                   href="https://www.tiktok.com/"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -227,7 +371,7 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
               </div>
 
               <div class="mt-6">
-                <SoundPopGame v-if="gameVisible" :reduced-motion="reducedMotion()" :analytics="{ track: () => {} }" />
+                <SoundPopGame v-if="gameVisible" :reduced-motion="reducedMotion()" />
                 <div v-else class="til-skeleton" aria-hidden="true" />
               </div>
             </div>
@@ -237,7 +381,9 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
         <ParentsTrustSection v-if="!isKids" @book-diagnostics="onBookDiagnostics" />
 
         <section v-else class="mt-10 sm:mt-14">
-          <div class="rounded-3xl bg-white/70 backdrop-blur border border-ink/10 shadow-soft px-5 py-7 sm:px-10">
+          <div
+            class="rounded-3xl bg-white/70 backdrop-blur border border-ink/10 shadow-soft px-5 py-7 sm:px-10"
+          >
             <h2 class="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
               {{ t('kids.parentsHintTitle') }}
             </h2>
@@ -246,7 +392,7 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
             </p>
             <div class="mt-5 flex flex-wrap gap-2">
               <a
-                class="til-chip-btn"
+                class="til-chip-btn til-chip-btn--xs sm:til-chip-btn--xs-reset"
                 href="https://www.instagram.com/"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -254,7 +400,7 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
                 Instagram
               </a>
               <a
-                class="til-chip-btn"
+                class="til-chip-btn til-chip-btn--xs sm:til-chip-btn--xs-reset"
                 href="https://www.whatsapp.com/"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -262,7 +408,7 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
                 WhatsApp
               </a>
               <a
-                class="til-chip-btn"
+                class="til-chip-btn til-chip-btn--xs sm:til-chip-btn--xs-reset"
                 href="https://www.tiktok.com/"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -282,7 +428,7 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
 <style scoped>
 .shadow-soft {
   box-shadow:
-    0 24px 70px rgba(15, 23, 42, 0.10),
+    0 24px 70px rgba(15, 23, 42, 0.1),
     0 6px 20px rgba(15, 23, 42, 0.08);
 }
 
@@ -305,7 +451,19 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
   height: 12px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
+}
+
+.til-langbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(46, 46, 56, 0.1);
+  backdrop-filter: blur(10px);
+  max-width: 100%;
 }
 
 .til-lang {
@@ -314,12 +472,19 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
   min-height: 40px;
   font-size: 12px;
   font-weight: 900;
-  color: rgba(46, 46, 56, 0.70);
+  color: rgba(46, 46, 56, 0.7);
+  white-space: nowrap;
+}
+
+.til-lang--xs {
+  padding: 7px 9px;
+  min-height: 36px;
+  font-size: 12px;
 }
 
 .til-lang--active {
-  background: rgba(126, 200, 255, 0.20);
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  background: rgba(126, 200, 255, 0.2);
+  border: 1px solid rgba(46, 46, 56, 0.1);
   color: rgba(46, 46, 56, 0.95);
 }
 
@@ -333,9 +498,12 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
   font-weight: 900;
   font-size: 14px;
   background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
   backdrop-filter: blur(10px);
-  transition: transform 140ms ease, box-shadow 140ms ease;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
+  max-width: 100%;
 }
 
 .til-chip-btn:hover {
@@ -346,6 +514,20 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
   transform: scale(0.98);
 }
 
+.til-chip-btn--xs {
+  padding: 10px 12px;
+  min-height: 42px;
+  font-size: 13px;
+}
+
+@media (min-width: 640px) {
+  .til-chip-btn--xs-reset {
+    padding: 12px 14px;
+    min-height: 48px;
+    font-size: 14px;
+  }
+}
+
 .til-mode {
   display: flex;
   flex-direction: column;
@@ -353,19 +535,34 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
   padding: 10px 12px;
   border-radius: 22px;
   background: rgba(255, 255, 255, 0.75);
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
   backdrop-filter: blur(10px);
-  min-width: 160px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 639px) {
+  .til-mode {
+    width: 100%;
+  }
+}
+
+@media (min-width: 640px) {
+  .til-mode {
+    min-width: 200px;
+  }
 }
 
 .til-mode-btn {
   position: relative;
   border-radius: 18px;
   background: rgba(207, 245, 231, 0.65);
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
   min-height: 44px;
   padding: 10px 12px;
   overflow: hidden;
+  width: 100%;
+  touch-action: manipulation;
 }
 
 .til-mode-btn-text {
@@ -374,6 +571,9 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
   font-size: 13px;
   font-weight: 900;
   color: rgba(46, 46, 56, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .til-mode-progress {
@@ -386,20 +586,29 @@ const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.pare
   position: absolute;
   inset: 0;
   height: 100%;
-  background: linear-gradient(90deg, rgba(126, 200, 255, 0.55), rgba(255, 214, 232, 0.60));
+  background: linear-gradient(90deg, rgba(126, 200, 255, 0.55), rgba(255, 214, 232, 0.6));
   width: 0%;
 }
 
 .til-skeleton {
   height: 520px;
   border-radius: 28px;
-  background: linear-gradient(90deg, rgba(126, 200, 255, 0.10), rgba(255, 214, 232, 0.12), rgba(126, 200, 255, 0.10));
+  background: linear-gradient(
+    90deg,
+    rgba(126, 200, 255, 0.1),
+    rgba(255, 214, 232, 0.12),
+    rgba(126, 200, 255, 0.1)
+  );
   background-size: 200% 100%;
   animation: tiltup-shimmer 1.2s ease-in-out infinite;
 }
 
 @keyframes tiltup-shimmer {
-  0% { background-position: 0% 0%; }
-  100% { background-position: 200% 0%; }
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 200% 0%;
+  }
 }
 </style>

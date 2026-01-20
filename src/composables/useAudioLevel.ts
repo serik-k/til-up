@@ -10,15 +10,15 @@ function clamp01(v: number) {
 
 /**
  * WebAudio: ONLY volume level (no recording, no speech recognition).
- * - Создаём AudioContext + AnalyserNode
- * - Считаем RMS по time-domain буферу -> нормализуем в 0..1
- * - Никаких данных не сохраняем
- * - Полный cleanup: rAF + треки + AudioContext.close()
+ * - AudioContext + AnalyserNode
+ * - RMS on time-domain buffer -> normalize 0..1
+ * - No persistence
+ * - Full cleanup: rAF + tracks + AudioContext.close()
  */
 export function useAudioLevel() {
   const state = ref<MicState>('off');
   const level = ref<number>(0); // 0..1
-  const threshold = ref<number>(0.18); // “порог громкости”
+  const threshold = ref<number>(0.18);
   const errorMessage = ref<string>('');
 
   let audioCtx: AudioContext | null = null;
@@ -47,8 +47,7 @@ export function useAudioLevel() {
       const ctx = audioCtx;
       audioCtx = null;
       try {
-        // close может бросать в некоторых окружениях — безопасно игнорируем
-        ctx.close();
+        void ctx.close();
       } catch {
         // ignore
       }
@@ -75,7 +74,18 @@ export function useAudioLevel() {
 
       stream = media;
 
-      audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const Ctx = (window.AudioContext ||
+        (window as any).webkitAudioContext) as typeof AudioContext;
+      audioCtx = new Ctx();
+
+      try {
+        if (audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+        }
+      } catch {
+        // ignore
+      }
+
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.85;
@@ -92,7 +102,6 @@ export function useAudioLevel() {
 
         analyser.getByteTimeDomainData(data);
 
-        // RMS по центру 128
         let sumSq = 0;
         for (let i = 0; i < data.length; i++) {
           const x = (data[i] - 128) / 128;
@@ -100,7 +109,6 @@ export function useAudioLevel() {
         }
         const rms = Math.sqrt(sumSq / data.length);
 
-        // Нормализация: rms обычно маленький, мягко усилим
         const normalized = clamp01(rms * 3.2);
         level.value = normalized;
 
@@ -115,6 +123,7 @@ export function useAudioLevel() {
         typeof e?.message === 'string'
           ? e.message
           : 'Не удалось получить доступ к микрофону. Можно продолжить без него.';
+      throw e;
     }
   }
 

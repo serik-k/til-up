@@ -1,5 +1,4 @@
 import { inject, provide } from 'vue';
-// Важно: нужен value-import, т.к. мы используем typeof useAudioLevel в ReturnType.
 import { useAudioLevel } from './useAudioLevel';
 
 export type AudioLevelApi = ReturnType<typeof useAudioLevel>;

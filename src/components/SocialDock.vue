@@ -59,7 +59,7 @@ function iconPath(key: (typeof links)[number]['key']) {
 .shadow-soft {
   box-shadow:
     0 18px 44px rgba(15, 23, 42, 0.12),
-    0 4px 16px rgba(15, 23, 42, 0.10);
+    0 4px 16px rgba(15, 23, 42, 0.1);
 }
 
 .til-dock-btn {
@@ -69,10 +69,12 @@ function iconPath(key: (typeof links)[number]['key']) {
   border-radius: 20px;
   padding: 10px 12px;
   min-height: 44px;
-  border: 1px solid rgba(46, 46, 56, 0.10);
+  border: 1px solid rgba(46, 46, 56, 0.1);
   color: rgba(46, 46, 56, 0.85);
   font-weight: 900;
-  transition: transform 140ms ease, box-shadow 140ms ease;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .til-dock-btn:active {
@@ -93,7 +95,7 @@ function iconPath(key: (typeof links)[number]['key']) {
 
 .til-dock-btn:hover {
   box-shadow:
-    0 14px 30px rgba(15, 23, 42, 0.10),
+    0 14px 30px rgba(15, 23, 42, 0.1),
     0 2px 12px rgba(15, 23, 42, 0.08);
 }
 </style>

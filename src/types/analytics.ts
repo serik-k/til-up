@@ -1,9 +1,19 @@
+export type Sound = 'R' | 'L' | 'SH';
+export type GameMode = 'target' | 'mixed';
+export type Level = 1 | 2 | 3;
+
 export type AnalyticsEvent =
   | {
       name: 'start_game';
-      payload: { selectedSounds: string[]; level: 1 | 2 | 3; mode: 'target' | 'mixed' };
+      payload: {
+        selectedSounds: Sound[];
+        level: Level;
+        mode: GameMode;
+        roundSeconds: number;
+        targetSound: Sound;
+      };
     }
-  | { name: 'pop_bubble'; payload: { sound: string; wasTarget: boolean } }
+  | { name: 'pop_bubble'; payload: { sound: Sound; wasTarget: boolean } }
   | { name: 'enable_mic'; payload: { success: boolean; fallbackUsed: boolean } }
   | { name: 'book_diagnostics'; payload: { source: 'parents_cta' | 'hero_cta' | 'other' } };
 
