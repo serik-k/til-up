@@ -26,7 +26,7 @@ export function useAudioLevel() {
   let source: MediaStreamAudioSourceNode | null = null;
   let stream: MediaStream | null = null;
   let rafId: number | null = null;
-  let data: Uint8Array | null = null;
+  let data: Uint8Array<ArrayBuffer> | null = null;
 
   function stopInternal() {
     if (rafId !== null) {
@@ -93,7 +93,7 @@ export function useAudioLevel() {
       source = audioCtx.createMediaStreamSource(media);
       source.connect(analyser);
 
-      data = new Uint8Array(analyser.fftSize);
+      data = new Uint8Array(analyser.fftSize) as Uint8Array<ArrayBuffer>;
 
       state.value = 'listening';
 
