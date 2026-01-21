@@ -281,8 +281,9 @@ function bubbleClientCenter(b: Bubble) {
 
 function updateBubbleTransform(b: Bubble) {
   const safeW = width.value > 0 ? width.value : BUBBLE_SIZE;
-  const px = b.x * (safeW - BUBBLE_SIZE) + BUBBLE_R;
-  b.tf = `transform: translate3d(${(px + 0.5) | 0}px, ${(b.y + 0.5) | 0}px, 0);`;
+  const left = (b.x * (safeW - BUBBLE_SIZE) + 0.5) | 0;
+  const top = (b.y + 0.5) | 0;
+  b.tf = `transform: translate3d(${left}px, ${top}px, 0);`;
 }
 
 function updateParticleStyle(p: Particle) {
