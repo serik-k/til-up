@@ -344,37 +344,9 @@ const holdHint = computed(() =>
         <HeroPlayZone @start-play="scrollToGame" />
 
         <section ref="gameAnchor" class="mt-10 sm:mt-14" aria-labelledby="game-title">
-          <div class="rounded-3xl bg-white border border-ink/10 shadow-soft overflow-hidden">
-            <div class="px-5 py-7 sm:px-10 sm:py-9">
-              <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4 min-w-0">
-                <div class="min-w-0">
-                  <h2
-                    id="game-title"
-                    class="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink"
-                  >
-                    {{ t('game.title') }}
-                  </h2>
-                  <p class="mt-2 text-ink/70 leading-relaxed max-w-[72ch]">
-                    {{ t('game.subtitle') }}
-                  </p>
-                </div>
-
-                <a
-                  class="til-chip-btn til-chip-btn--xs sm:til-chip-btn--xs-reset shrink-0"
-                  href="https://www.tiktok.com/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  :aria-label="t('game.tiktokAria')"
-                >
-                  {{ t('game.openTikTok') }}
-                </a>
-              </div>
-
-              <div class="mt-6">
-                <SoundPopGame v-if="gameVisible" :reduced-motion="reducedMotion()" />
-                <div v-else class="til-skeleton" aria-hidden="true" />
-              </div>
-            </div>
+          <div class="mt-6">
+            <SoundPopGame v-if="gameVisible" :reduced-motion="reducedMotion()" />
+            <div v-else class="til-skeleton" aria-hidden="true" />
           </div>
         </section>
 

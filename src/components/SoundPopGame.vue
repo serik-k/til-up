@@ -12,6 +12,7 @@ import {
 } from 'vue';
 import { useAudioLevel } from '../composables/useAudioLevel';
 import { useAudioLevelInjected } from '../composables/useAudioLevelProvider';
+import { useI18n } from 'vue-i18n';
 
 type GameMode = 'target' | 'mixed';
 type Level = 1 | 2 | 3;
@@ -45,6 +46,8 @@ type Particle = {
 };
 
 const props = defineProps<{ reducedMotion: boolean }>();
+
+const { t } = useI18n();
 
 const containerRef = ref<HTMLElement | null>(null);
 const width = ref(0);
@@ -831,12 +834,15 @@ onUnmounted(() => {
                   <span class="h-2 w-2 rounded-full bg-sky-400"></span>
                 </span>
                 <h2 class="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-                  Sound Pop
+                  {{ t('game.title') }}
                 </h2>
               </div>
 
               <p class="mt-2 max-w-[72ch] text-xs text-slate-600 sm:text-sm">
-                Лопай пузыри с буквами. Ошибок нет — только мягкие подсказки. Раунд 30–60 секунд.
+                {{ t('game.subtitle') }}
+              </p>
+              <p class="mt-2 max-w-[72ch] text-xs text-slate-600 sm:text-sm">
+                Лопай пузыри с буквами. Раунд 30–60 секунд.
               </p>
             </div>
 
