@@ -42,7 +42,7 @@ function startPlay() {
         <div
           class="inline-flex items-center gap-2 rounded-2xl bg-white/70 backdrop-blur border border-ink/10 px-4 py-2 shadow-sm"
         >
-          <span class="size-2.5 rounded-full bg-mint-300" />
+          <span class="size-2.5 rounded-full bg-pink-300/40" />
           <p class="text-xs font-semibold text-ink/70">{{ t('hero.kidsBadge') }}</p>
         </div>
 
@@ -66,13 +66,6 @@ function startPlay() {
             <span class="text-lg">{{ t('hero.startPlay') }}</span>
             <span aria-hidden="true" class="til-spark" :class="{ 'til-spark-on': pressed }">★</span>
           </button>
-
-          <div
-            class="rounded-2xl bg-white/70 backdrop-blur border border-ink/10 px-4 py-3 shadow-sm"
-          >
-            <p class="text-sm font-semibold text-ink">{{ t('hero.noFailTitle') }}</p>
-            <p class="text-xs text-ink/65 mt-1">{{ t('hero.noFailSubtitle') }}</p>
-          </div>
         </div>
 
         <div class="mt-6">

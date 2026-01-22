@@ -14,8 +14,6 @@ import { useI18n } from 'vue-i18n';
 import { useSpeechSoundDetector } from '../composables/useSpeechSoundDetector';
 import { Bubble, GameMode, Level, Particle, Sound } from '../types/soundPop';
 
-const props = defineProps<{ reducedMotion: boolean }>();
-
 const { t } = useI18n();
 
 const containerRef = ref<HTMLElement | null>(null);
@@ -365,8 +363,6 @@ function clearAllEntitiesToPool() {
 }
 
 function addParticles(clientX: number, clientY: number) {
-  if (props.reducedMotion) return;
-
   const now = safeNow();
   const pt = containerPointFromClient(clientX, clientY);
 
@@ -401,7 +397,7 @@ function applyWrongTapFeedback(b: Bubble) {
   rewardText.value = '';
 
   const now = safeNow();
-  const hintMs = props.reducedMotion ? 0 : 420;
+  const hintMs = 420;
 
   killBubble(b, now, hintMs, true);
 }
@@ -412,7 +408,7 @@ function popBubbleAsCorrect(b: Bubble, clientX: number, clientY: number) {
   if (b.popped) return;
 
   const now = safeNow();
-  const popMs = props.reducedMotion ? 0 : 220;
+  const popMs = 220;
 
   killBubble(b, now, popMs, false);
 
@@ -664,7 +660,7 @@ function loop(ts: number) {
   if (touchedB) markDirtyB();
 
   // particles
-  if (!props.reducedMotion && particles.value.length) {
+  if (particles.value.length) {
     let touchedP = false;
 
     for (let i = 0; i < particles.value.length; i++) {
@@ -1094,7 +1090,7 @@ const detectedConfPct = computed(() => {
                   </button>
                 </div>
 
-                <div v-if="!props.reducedMotion" class="absolute inset-0 pointer-events-none">
+                <div class="absolute inset-0 pointer-events-none">
                   <div
                     v-for="p in particles"
                     :key="p.id"
@@ -1259,7 +1255,7 @@ const detectedConfPct = computed(() => {
                   </p>
 
                   <div class="mt-2 flex items-center justify-between">
-                    <p class="text-xs font-semibold text-slate-600">Распознано</p>
+                    <p class="text-xs font-semibold text-slate-600">Звук</p>
                     <p class="text-xs font-extrabold text-slate-900">
                       {{ detectedSoundLabel }} {{ detectedConfPct }}
                     </p>

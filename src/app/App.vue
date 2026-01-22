@@ -2,25 +2,19 @@
 import { computed, defineAsyncComponent, defineComponent, h, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 
-import CustomCursor from '../components/CustomCursor.vue';
 import HeroPlayZone from '../components/HeroPlayZone.vue';
 import ParentsTrustSection from '../components/ParentsTrustSection.vue';
 import SocialDock from '../components/SocialDock.vue';
 
-import { useReducedMotion } from '../composables/useReducedMotion';
-import { usePointerCoarse } from '../composables/usePointerCoarse';
 import { useIntersectionOnce } from '../composables/useIntersectionOnce';
 import { useSeo } from '../composables/useSeo';
 
 import type { AppLocale } from './i18n';
 import { persistLocale } from './i18n';
+import FloatingTitle from '../components/FloatingTitle.vue';
 
 const { t, locale } = useI18n();
 useSeo({ t, locale } as any);
-
-const { reducedMotion } = useReducedMotion();
-const { isCoarse } = usePointerCoarse();
-const cursorEnabled = computed(() => !isCoarse.value && !reducedMotion());
 
 type Mode = 'kids' | 'parents';
 const mode = ref<Mode>('parents');
@@ -39,10 +33,6 @@ const holdPointerId = ref<number | null>(null);
 const holdStartX = ref(0);
 const holdStartY = ref(0);
 const moveCancelPx = 12;
-
-function lerp(a: number, b: number, k: number) {
-  return a + (b - a) * k;
-}
 
 function stopHold() {
   holding.value = false;
@@ -146,7 +136,7 @@ const { visible: gameVisible } = useIntersectionOnce(gameAnchor, '240px');
 function scrollToGame() {
   const el = gameAnchor.value;
   if (!el) return;
-  el.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 const GameLoading = defineComponent({
@@ -225,8 +215,6 @@ const holdHint = computed(() =>
 
 <template>
   <div class="min-h-screen bg-blue-100 text-ink overflow-x-hidden">
-    <CustomCursor v-if="cursorEnabled" :enabled="true" />
-
     <div class="mx-auto max-w-[1120px] px-4 pt-5 pb-24 sm:pt-8">
       <header class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-3 min-w-0">
@@ -234,7 +222,7 @@ const holdHint = computed(() =>
             <span class="til-logo-dot" />
           </div>
           <div class="min-w-0">
-            <p class="text-sm font-extrabold tracking-tight text-ink">{{ t('app.brand') }}</p>
+            <FloatingTitle :text="t('app.brand')" />
             <p class="text-xs text-ink/60 truncate">{{ t('app.tagline') }}</p>
           </div>
         </div>
@@ -345,51 +333,12 @@ const holdHint = computed(() =>
 
         <section ref="gameAnchor" class="mt-10 sm:mt-14" aria-labelledby="game-title">
           <div class="mt-6">
-            <SoundPopGame v-if="gameVisible" :reduced-motion="reducedMotion()" />
+            <SoundPopGame v-if="gameVisible" />
             <div v-else class="til-skeleton" aria-hidden="true" />
           </div>
         </section>
 
-        <ParentsTrustSection v-if="!isKids" @book-diagnostics="onBookDiagnostics" />
-
-        <section v-else class="mt-10 sm:mt-14">
-          <div
-            class="rounded-3xl bg-white/70 backdrop-blur border border-ink/10 shadow-soft px-5 py-7 sm:px-10"
-          >
-            <h2 class="text-xl sm:text-2xl font-extrabold tracking-tight text-ink">
-              {{ t('kids.parentsHintTitle') }}
-            </h2>
-            <p class="mt-2 text-ink/70 leading-relaxed max-w-[70ch]">
-              {{ t('kids.parentsHintText') }}
-            </p>
-            <div class="mt-5 flex flex-wrap gap-2">
-              <a
-                class="til-chip-btn til-chip-btn--xs sm:til-chip-btn--xs-reset"
-                href="https://www.instagram.com/"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Instagram
-              </a>
-              <a
-                class="til-chip-btn til-chip-btn--xs sm:til-chip-btn--xs-reset"
-                href="https://www.whatsapp.com/"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                WhatsApp
-              </a>
-              <a
-                class="til-chip-btn til-chip-btn--xs sm:til-chip-btn--xs-reset"
-                href="https://www.tiktok.com/"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                TikTok
-              </a>
-            </div>
-          </div>
-        </section>
+        <ParentsTrustSection @book-diagnostics="onBookDiagnostics" />
       </main>
     </div>
 
