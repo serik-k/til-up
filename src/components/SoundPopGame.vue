@@ -10,40 +10,9 @@ import {
   triggerRef,
   watch,
 } from 'vue';
-import { useAudioLevel } from '../composables/useAudioLevel';
-import { useAudioLevelInjected } from '../composables/useAudioLevelProvider';
 import { useI18n } from 'vue-i18n';
-
-type GameMode = 'target' | 'mixed';
-type Level = 1 | 2 | 3;
-type Sound = 'R' | 'L' | 'SH';
-
-type Bubble = {
-  id: string;
-  x: number; // 0..1
-  y: number; // px
-  vy: number; // px/s
-  letter: Sound;
-  alive: boolean;
-
-  popped: boolean;
-  smile: boolean;
-
-  removeAt: number | null; // ms timestamp
-  tf: string; // cached transform style
-};
-
-type Particle = {
-  id: string;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  life: number; // ms
-  born: number; // ms
-  alpha: number; // 0..1
-  style: string; // cached style (transform+opacity)
-};
+import { useSpeechSoundDetector } from '../composables/useSpeechSoundDetector';
+import { Bubble, GameMode, Level, Particle, Sound } from '../types/soundPop';
 
 const props = defineProps<{ reducedMotion: boolean }>();
 
@@ -91,7 +60,6 @@ let lastUiTimeUpdateTs = 0;
 
 let lastSweepTs = 0;
 
-/** ====== Dirty commit only when needed ====== */
 let dirtyBubbles = false;
 let dirtyParticles = false;
 
@@ -113,9 +81,7 @@ function commitFrame() {
 }
 
 /** mic */
-const injectedAudio = useAudioLevelInjected();
-const ownsAudio = !injectedAudio;
-const audio = injectedAudio ?? useAudioLevel();
+const detector = useSpeechSoundDetector();
 
 /** onboarding */
 const onboardingStep = ref(-1);
@@ -142,7 +108,7 @@ function soundLabel(s: Sound) {
 const timeLeftCeil = computed(() => Math.ceil(timeLeft.value));
 
 const audioPercent = computed(() => {
-  const v = Number(audio.level.value);
+  const v = Number(detector.level.value);
   if (!Number.isFinite(v)) return 0;
   return Math.round(clamp(v, 0, 1) * 100);
 });
@@ -468,6 +434,97 @@ async function ensureSizeBeforeLoop() {
   }
 }
 
+/** ====== pop by recognized sound (R/L/SH) with target-only scoring ====== */
+const VOICE_MIN_CONF = 0.78;
+const VOICE_STABLE_FRAMES = 5;
+const VOICE_COOLDOWN_MS = 240;
+
+let voiceLast: Sound | null = null;
+let voiceStable = 0;
+let voiceLastFire = 0;
+
+function resetVoiceGate(opts?: { keepCooldown?: boolean }) {
+  voiceLast = null;
+  voiceStable = 0;
+  if (!opts?.keepCooldown) voiceLastFire = 0;
+}
+
+function pickAliveBubbleByLetter(letter: Sound): Bubble | null {
+  const arr = bubbles.value;
+  let best: Bubble | null = null;
+  let bestY = -Infinity;
+
+  for (let i = 0; i < arr.length; i++) {
+    const b = arr[i]!;
+    if (!b.alive || b.popped) continue;
+    if (b.letter !== letter) continue;
+
+    if (b.y > bestY) {
+      bestY = b.y;
+      best = b;
+    }
+  }
+  return best;
+}
+
+function tryPopByVoice(now: number) {
+  if (!isRunning.value) return;
+  if (interactionsLocked.value) return;
+  if (detector.state.value !== 'listening') return;
+
+  const s =
+    ((detector.stableDetectedSound?.value ?? detector.detectedSound.value) as Sound | null) ?? null;
+
+  const confRaw = detector.stableConfidence?.value ?? detector.confidence.value;
+
+  const conf = Number(confRaw);
+
+  if (!s || !Number.isFinite(conf) || conf < VOICE_MIN_CONF) {
+    voiceLast = null;
+    voiceStable = 0;
+    return;
+  }
+
+  if (settings.mode === 'target' && s !== settings.targetSound) {
+    voiceLast = null;
+    voiceStable = 0;
+    return;
+  }
+
+  if (voiceLast === s) voiceStable += 1;
+  else {
+    voiceLast = s;
+    voiceStable = 1;
+  }
+
+  if (voiceStable < VOICE_STABLE_FRAMES) return;
+  if (now - voiceLastFire < VOICE_COOLDOWN_MS) return;
+
+  if (settings.mode === 'target') {
+    const b = pickAliveBubbleByLetter(settings.targetSound);
+    if (!b) return;
+
+    voiceLastFire = now;
+    resetVoiceGate({ keepCooldown: true });
+
+    const c = bubbleClientCenter(b);
+    popBubbleAsCorrect(b, c.clientX, c.clientY);
+    return;
+  }
+
+  if (!settings.selectedSounds.includes(s)) return;
+
+  const b = pickAliveBubbleByLetter(s);
+  if (!b) return;
+
+  voiceLastFire = now;
+  resetVoiceGate({ keepCooldown: true });
+
+  const c = bubbleClientCenter(b);
+  popBubbleAsCorrect(b, c.clientX, c.clientY);
+}
+/** ====== end pop by recognized sound ====== */
+
 function resetRoundState() {
   rewardText.value = '';
   score.value = 0;
@@ -484,6 +541,8 @@ function resetRoundState() {
 
   dirtyBubbles = false;
   dirtyParticles = false;
+
+  resetVoiceGate();
 }
 
 async function startRound() {
@@ -528,6 +587,8 @@ function stopRound(showReward: boolean) {
 
   clearAllEntitiesToPool();
 
+  resetVoiceGate();
+
   if (showReward) {
     rewardText.value =
       score.value >= 8 ? 'Супер!' : score.value >= 4 ? 'Класс!' : 'Отлично получилось!';
@@ -570,6 +631,9 @@ function loop(ts: number) {
   }
 
   const now = ts;
+
+  // voice pop (ANY sound)
+  tryPopByVoice(now);
 
   // spawn
   const m = computeDifficultyMultiplier();
@@ -751,6 +815,8 @@ watch(
       timeLeftMs = settings.roundSeconds * 1000;
       timeLeft.value = settings.roundSeconds;
       lastUiTimeUpdateTs = 0;
+
+      resetVoiceGate();
     }
   }
 );
@@ -758,13 +824,14 @@ watch(
 /** mic */
 async function enableMic() {
   try {
-    await audio.start();
+    await detector.start();
   } catch {
     // ignore
   }
 }
 function disableMic() {
-  audio.stop();
+  detector.stop();
+  resetVoiceGate();
 }
 
 /** visibility auto-pause */
@@ -797,12 +864,23 @@ onUnmounted(() => {
     rafId = null;
   }
 
-  if (ownsAudio) audio.stop();
+  detector.stop();
 
   document.removeEventListener('keydown', handleOnboardingKeydown);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
 
   clearAllEntitiesToPool();
+});
+
+const detectedSoundLabel = computed(() => {
+  const s = detector.detectedSound.value as Sound | null;
+  return s ? soundLabel(s) : '♬';
+});
+
+const detectedConfPct = computed(() => {
+  const c = Number(detector.confidence.value);
+  if (!Number.isFinite(c)) return 0;
+  return Math.round(clamp(c, 0, 1) * 100);
 });
 </script>
 
@@ -1145,7 +1223,7 @@ onUnmounted(() => {
 
                   <div class="flex flex-wrap gap-2">
                     <button
-                      v-if="audio.state.value !== 'listening'"
+                      v-if="detector.state.value !== 'listening'"
                       type="button"
                       class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-gradient-to-br from-sky-200 to-sky-100 px-4 py-3 font-extrabold text-slate-900 shadow-sm transition active:scale-[0.98]"
                       @click="enableMic"
@@ -1176,9 +1254,16 @@ onUnmounted(() => {
                     </div>
                   </div>
 
-                  <p v-if="audio.state.value === 'error'" class="text-xs text-slate-600">
-                    {{ audio.errorMessage.value }}
+                  <p v-if="detector.state.value === 'error'" class="text-xs text-slate-600">
+                    {{ detector.errorMessage.value }}
                   </p>
+
+                  <div class="mt-2 flex items-center justify-between">
+                    <p class="text-xs font-semibold text-slate-600">Распознано</p>
+                    <p class="text-xs font-extrabold text-slate-900">
+                      {{ detectedSoundLabel }} {{ detectedConfPct }}
+                    </p>
+                  </div>
                 </div>
               </details>
 
