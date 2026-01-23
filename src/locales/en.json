@@ -82,5 +82,82 @@
   "seo": {
     "title": "Til Up — a speech therapy game for kids 3–9",
     "description": "Play-based exercises for R/L/SH sounds: short sessions, gentle hints, privacy, and a clear assessment for parents."
+  },
+  "soundpop": {
+    "title": "Sound Pop",
+    "subtitle": "Say a word — pop a bubble",
+    "hintRound": "Round is 30–60 seconds. In “Target” mode — only the target letter.",
+    "ui": {
+      "time": "Time",
+      "seconds": "s",
+      "score": "Score",
+      "softHint": "Hint 🙂",
+      "readyTitle": "Ready?",
+      "readyText": "Press “Start” and say a word."
+    },
+    "actions": {
+      "start": "Start",
+      "pause": "Pause",
+      "resume": "Resume",
+      "stop": "Stop",
+      "tips": "Tips"
+    },
+    "rewards": {
+      "super": "Super!",
+      "cool": "Nice!",
+      "good": "Great job!"
+    },
+    "settings": {
+      "title": "Settings"
+    },
+    "mic": {
+      "title": "Microphone",
+      "desc": "We recognize short words in the browser. Audio is not saved.",
+      "enable": "Enable",
+      "disable": "Disable",
+      "confidence": "Confidence",
+      "recognized": "Recognized",
+      "noWord": "—",
+      "noSound": "—",
+      "unsupported": "Microphone/speech recognition is not supported in this browser"
+    },
+    "mode": {
+      "title": "Mode",
+      "target": "Target",
+      "mixed": "Mixed"
+    },
+    "words": {
+      "title": "Letters",
+      "target": "Target sound",
+      "multi": "Sounds (multi-select)"
+    },
+    "difficulty": {
+      "title": "Difficulty & time",
+      "level": "Level",
+      "round": "Round length",
+      "note": "In “Mixed” mode bubbles spawn from selected letters — only what the child says will pop."
+    },
+    "tips": {
+      "title": "Tips",
+      "subtitle": "3 steps, minimal text",
+      "skip": "Skip",
+      "step": "Step",
+      "next": "Next",
+      "esc": "Escape closes tips.",
+      "step1": "1) Say a word and pop a bubble.",
+      "step2": "2) Wrong tap shows a gentle hint.",
+      "step3": "3) Enable the mic and say short words."
+    },
+    "aria": {
+      "section": "Sound Pop Game",
+      "field": "Sound Pop field",
+      "bubble": "Bubble with a word",
+      "start": "Start",
+      "pause": "Pause",
+      "resume": "Resume",
+      "stop": "Stop",
+      "tips": "Show tips",
+      "roundLength": "Round length"
+    }
   }
 }

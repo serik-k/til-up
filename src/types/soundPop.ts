@@ -1,3 +1,4 @@
+// ../types/soundPop.ts
 export type Sound = 'R' | 'L' | 'SH';
 
 export type GameMode = 'target' | 'mixed';
@@ -5,17 +6,19 @@ export type Level = 1 | 2 | 3;
 
 export type Bubble = {
   id: string;
-  x: number; // 0..1
-  y: number; // px
-  vy: number; // px/s
+  x: number;
+  y: number;
+  vy: number;
   letter: Sound;
+  word: string;
+
   alive: boolean;
 
   popped: boolean;
   smile: boolean;
 
-  removeAt: number | null; // ms timestamp
-  tf: string; // cached transform style
+  removeAt: number | null;
+  tf: string;
 };
 
 export type Particle = {
@@ -24,49 +27,31 @@ export type Particle = {
   y: number;
   vx: number;
   vy: number;
-  life: number; // ms
-  born: number; // ms
-  alpha: number; // 0..1
-  style: string; // cached style (transform+opacity)
+  life: number;
+  born: number;
+  alpha: number;
+  style: string; //
 };
 
 export type DetectorState = 'idle' | 'listening' | 'error';
 
 export type DetectorFeatures = {
-  rms: number;
-  zcr: number;
-  low: number;
-  mid: number;
-  high: number;
-  flatness: number;
-  pitchHz: number;
-  pitchConf: number;
-  noiseFloorRms: number;
+  transcriptRaw: string;
+  token: string;
+  isFinal: boolean;
+  lang: string;
+  matchedSound: Sound | null;
 };
 
 export type DetectorConfig = {
-  fps: number; // частота обновления анализа
-  fftSize: 1024 | 2048 | 4096;
-  smoothingTimeConstant: number;
+  lang: string;
 
-  // getUserMedia
-  echoCancellation: boolean;
-  noiseSuppression: boolean;
-  autoGainControl: boolean;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
 
-  // калибровка шума
-  enableNoiseCalibration: boolean;
-  calibrationMs: number;
-  noiseMarginRms: number;
-
-  // гейты
-  baseMinRms: number; // абсолютный минимум (даже если noiseFloor маленький)
-  minConfToReport: number; // минимальная уверенность, чтобы вообще репортить звук (raw)
-
-  // стабилизация (stable*)
   stableFrames: number;
   stableMinConf: number;
 
-  // EMA сглаживание фич
-  emaAlpha: number; // 0..1, больше = быстрее реагирует, меньше = стабильнее
+  words: Record<string, Record<Sound, string[]>>;
 };

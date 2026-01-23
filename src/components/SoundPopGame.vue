@@ -11,11 +11,11 @@ import {
   watch,
 } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useSpeechSoundDetector } from '../composables/useSpeechSoundDetector';
-import { Bubble, GameMode, Level, Particle, Sound } from '../types/soundPop';
+import type { Bubble, GameMode, Level, Particle, Sound } from '../types/soundPop';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
+/** layout */
 const containerRef = ref<HTMLElement | null>(null);
 const width = ref(0);
 const height = ref(0);
@@ -42,6 +42,7 @@ const timeLeft = ref(settings.roundSeconds);
 const score = ref(0);
 const rewardText = ref<string>('');
 
+/** entities */
 const bubbles = shallowRef<Bubble[]>([]);
 const particles = shallowRef<Particle[]>([]);
 
@@ -50,13 +51,10 @@ const MAX_BUBBLES = 12;
 let rafId: number | null = null;
 let lastTs = 0;
 let spawnAcc = 0;
-
 let aliveBubblesCount = 0;
 
 let timeLeftMs = settings.roundSeconds * 1000;
 let lastUiTimeUpdateTs = 0;
-
-let lastSweepTs = 0;
 
 let dirtyBubbles = false;
 let dirtyParticles = false;
@@ -78,17 +76,6 @@ function commitFrame() {
   }
 }
 
-/** mic */
-const detector = useSpeechSoundDetector();
-
-/** onboarding */
-const onboardingStep = ref(-1);
-const onboardingOpen = computed(() => onboardingStep.value >= 0);
-const interactionsLocked = computed(() => onboardingOpen.value);
-
-const onboardingModalRef = ref<HTMLElement | null>(null);
-const onboardingPausedGame = ref(false);
-
 function safeNow() {
   return performance.now();
 }
@@ -97,25 +84,72 @@ function clamp(v: number, a: number, b: number) {
   return Math.max(a, Math.min(b, v));
 }
 
-const SOUND_LABEL: Record<Sound, string> = { R: 'Р', L: 'Л', SH: 'Ш' };
-function soundLabel(s: Sound) {
-  return SOUND_LABEL[s] ?? s;
-}
-
-/** computed for template */
-const timeLeftCeil = computed(() => Math.ceil(timeLeft.value));
-
-const audioPercent = computed(() => {
-  const v = Number(detector.level.value);
-  if (!Number.isFinite(v)) return 0;
-  return Math.round(clamp(v, 0, 1) * 100);
+/** ===== i18n helpers ===== */
+const speechLang = computed(() => {
+  const l = String(locale.value || '').toLowerCase();
+  if (l.startsWith('kk')) return 'kk-KZ';
+  if (l.startsWith('en')) return 'en-US';
+  return 'ru-RU';
 });
 
+const localeKey = computed<'ru' | 'kk' | 'en'>(() => {
+  const l = speechLang.value.toLowerCase();
+  if (l.startsWith('kk')) return 'kk';
+  if (l.startsWith('en')) return 'en';
+  return 'ru';
+});
+
+const SOUND_UI_LABEL: Record<'ru' | 'kk' | 'en', Record<Sound, string>> = {
+  ru: { R: 'Р', L: 'Л', SH: 'Ш' },
+  kk: { R: 'Р', L: 'Л', SH: 'Ш' },
+  en: { R: 'R', L: 'L', SH: 'SH' },
+};
+
+function soundLabel(s: Sound) {
+  return SOUND_UI_LABEL[localeKey.value][s] ?? s;
+}
+
+/** ===== words to spawn (short, child-friendly) ===== */
+const WORDS: Record<'ru' | 'kk' | 'en', Record<Sound, string[]>> = {
+  ru: {
+    R: ['рыба', 'робот', 'ракета', 'радуга', 'роза'],
+    L: ['лев', 'луна', 'лист', 'лимон', 'лапа'],
+    SH: ['шар', 'шапка', 'шишка', 'шум', 'шарик'],
+  },
+  kk: {
+    R: ['робот', 'ракета', 'раушан', 'радио', 'роза'],
+    L: ['лақ', 'лимон', 'лего', 'лампа', 'лифт'],
+    SH: ['шар', 'шана', 'шай', 'шапка', 'шоколад'],
+  },
+  en: {
+    R: ['rain', 'robot', 'rabbit', 'rocket', 'red'],
+    L: ['lion', 'lamp', 'leaf', 'lego', 'lake'],
+    SH: ['shark', 'ship', 'shoe', 'sheep', 'shell'],
+  },
+};
+
+function pickWordForSound(s: Sound): string {
+  const pack = WORDS[localeKey.value];
+  const arr = pack[s] || [];
+  return String(arr[(Math.random() * arr.length) | 0] || soundLabel(s));
+}
+
+/** ===== UI computed ===== */
+const timeLeftCeil = computed(() => Math.ceil(timeLeft.value));
+
 const primaryActionText = computed(() =>
-  isIdle.value ? 'Старт' : isRunning.value ? 'Пауза' : 'Продолжить'
+  isIdle.value
+    ? t('soundpop.actions.start')
+    : isRunning.value
+      ? t('soundpop.actions.pause')
+      : t('soundpop.actions.resume')
 );
 const primaryActionAria = computed(() =>
-  isIdle.value ? 'Начать' : isRunning.value ? 'Пауза' : 'Продолжить'
+  isIdle.value
+    ? t('soundpop.aria.start')
+    : isRunning.value
+      ? t('soundpop.aria.pause')
+      : t('soundpop.aria.resume')
 );
 
 function onPrimaryActionClick() {
@@ -131,11 +165,18 @@ function uid(prefix: string) {
   return `${prefix}_${idSeq}`;
 }
 
-/** ====== resize (batched) ====== */
+/** ===== resize (batched) ===== */
 let ro: ResizeObserver | null = null;
 let roRaf: number | null = null;
 let pendingW = 0;
 let pendingH = 0;
+
+function updateBubbleTransform(b: Bubble) {
+  const safeW = width.value > 0 ? width.value : BUBBLE_SIZE;
+  const left = (b.x * (safeW - BUBBLE_SIZE) + 0.5) | 0;
+  const top = (b.y + 0.5) | 0;
+  b.tf = `transform: translate3d(${left}px, ${top}px, 0);`;
+}
 
 function updateAllBubbleTransforms() {
   if (!bubbles.value.length) return;
@@ -154,7 +195,6 @@ function flushSize() {
   width.value = pendingW;
   height.value = pendingH;
   roRaf = null;
-
   updateAllBubbleTransforms();
 }
 
@@ -179,7 +219,7 @@ function attachResizeObservers() {
   flushSize();
 }
 
-/** ====== pools ====== */
+/** ===== pools ===== */
 const particlePool: Particle[] = [];
 const bubblePool: Bubble[] = [];
 
@@ -210,6 +250,7 @@ function getBubble(): Bubble {
       y: 0,
       vy: 0,
       letter: 'R',
+      word: '',
       alive: true,
       popped: false,
       smile: false,
@@ -222,7 +263,7 @@ function recycleBubble(b: Bubble) {
   if (bubblePool.length < 200) bubblePool.push(b);
 }
 
-/** ====== helpers ====== */
+/** ===== helpers ===== */
 function containerPointFromClient(clientX: number, clientY: number) {
   const el = containerRef.value;
   if (!el) return { x: clientX, y: clientY };
@@ -243,13 +284,6 @@ function bubbleClientCenter(b: Bubble) {
   return { clientX: rect.left + px, clientY: rect.top + py };
 }
 
-function updateBubbleTransform(b: Bubble) {
-  const safeW = width.value > 0 ? width.value : BUBBLE_SIZE;
-  const left = (b.x * (safeW - BUBBLE_SIZE) + 0.5) | 0;
-  const top = (b.y + 0.5) | 0;
-  b.tf = `transform: translate3d(${left}px, ${top}px, 0);`;
-}
-
 function updateParticleStyle(p: Particle) {
   const x = (p.x + 0.5) | 0;
   const y = (p.y + 0.5) | 0;
@@ -257,15 +291,83 @@ function updateParticleStyle(p: Particle) {
   p.style = `transform: translate3d(${x}px, ${y}px, 0); opacity: ${a};`;
 }
 
-/** ====== gameplay ====== */
+/** onboarding */
+const onboardingStep = ref(-1);
+const onboardingOpen = computed(() => onboardingStep.value >= 0);
+const interactionsLocked = computed(() => onboardingOpen.value);
+
+const onboardingModalRef = ref<HTMLElement | null>(null);
+const onboardingPausedGame = ref(false);
+
+function focusOnboarding() {
+  onboardingModalRef.value?.focus();
+}
+
+function openOnboardingIfNeeded() {
+  if (onboardingStep.value < 0) onboardingStep.value = 0;
+
+  nextTick(() => focusOnboarding());
+
+  onboardingPausedGame.value = false;
+  if (isRunning.value) {
+    onboardingPausedGame.value = true;
+    pauseRound();
+  }
+}
+
+function nextOnboarding() {
+  if (onboardingStep.value < 2) {
+    onboardingStep.value += 1;
+    nextTick(() => focusOnboarding());
+  } else {
+    closeOnboarding();
+  }
+}
+
+function closeOnboarding() {
+  const shouldResume = onboardingPausedGame.value;
+  onboardingStep.value = -1;
+
+  nextTick(() => {
+    if (shouldResume && isPaused.value && onboardingStep.value < 0) {
+      onboardingPausedGame.value = false;
+      resumeRound();
+    } else {
+      onboardingPausedGame.value = false;
+    }
+  });
+}
+
+function skipOnboarding() {
+  closeOnboarding();
+}
+
+function handleOnboardingKeydown(e: KeyboardEvent) {
+  if (!onboardingOpen.value) return;
+  if (e.key !== 'Escape') return;
+  e.preventDefault();
+  closeOnboarding();
+}
+
+watch(
+  onboardingOpen,
+  (open) => {
+    if (open) document.addEventListener('keydown', handleOnboardingKeydown);
+    else document.removeEventListener('keydown', handleOnboardingKeydown);
+  },
+  { immediate: true }
+);
+
+/** ===== gameplay spawn ===== */
 function spawnPool(): Sound[] {
   if (settings.mode === 'target') return [settings.targetSound];
   return settings.selectedSounds.length ? settings.selectedSounds : (['R', 'L', 'SH'] as Sound[]);
 }
 
-function pickLetter(): Sound {
+function pickSpawnItem(): { sound: Sound; word: string } {
   const pool = spawnPool();
-  return pool[(Math.random() * pool.length) | 0] as Sound;
+  const s = pool[(Math.random() * pool.length) | 0] as Sound;
+  return { sound: s, word: pickWordForSound(s) };
 }
 
 function computeDifficultyMultiplier(): number {
@@ -279,12 +381,17 @@ function spawnBubble(m: number) {
   if (!width.value || !height.value) return;
   if (aliveBubblesCount >= MAX_BUBBLES) return;
 
+  const { sound, word } = pickSpawnItem();
+
   const b = getBubble();
   b.id = uid('b');
   b.x = Math.random();
   b.y = -BUBBLE_SIZE;
   b.vy = (70 + Math.random() * 40) * m;
-  b.letter = pickLetter();
+
+  b.letter = sound;
+  b.word = word;
+
   b.alive = true;
   b.smile = false;
   b.popped = false;
@@ -388,18 +495,15 @@ function addParticles(clientX: number, clientY: number) {
   markDirtyP();
 }
 
-function isCorrectBubble(b: Bubble): boolean {
+function isCorrectBubbleTap(b: Bubble): boolean {
   if (settings.mode === 'mixed') return settings.selectedSounds.includes(b.letter);
   return b.letter === settings.targetSound;
 }
 
 function applyWrongTapFeedback(b: Bubble) {
   rewardText.value = '';
-
   const now = safeNow();
-  const hintMs = 420;
-
-  killBubble(b, now, hintMs, true);
+  killBubble(b, now, 420, true);
 }
 
 function popBubbleAsCorrect(b: Bubble, clientX: number, clientY: number) {
@@ -408,9 +512,7 @@ function popBubbleAsCorrect(b: Bubble, clientX: number, clientY: number) {
   if (b.popped) return;
 
   const now = safeNow();
-  const popMs = 220;
-
-  killBubble(b, now, popMs, false);
+  killBubble(b, now, 220, false);
 
   score.value += 1;
   rewardText.value = '';
@@ -430,97 +532,6 @@ async function ensureSizeBeforeLoop() {
   }
 }
 
-/** ====== pop by recognized sound (R/L/SH) with target-only scoring ====== */
-const VOICE_MIN_CONF = 0.78;
-const VOICE_STABLE_FRAMES = 5;
-const VOICE_COOLDOWN_MS = 240;
-
-let voiceLast: Sound | null = null;
-let voiceStable = 0;
-let voiceLastFire = 0;
-
-function resetVoiceGate(opts?: { keepCooldown?: boolean }) {
-  voiceLast = null;
-  voiceStable = 0;
-  if (!opts?.keepCooldown) voiceLastFire = 0;
-}
-
-function pickAliveBubbleByLetter(letter: Sound): Bubble | null {
-  const arr = bubbles.value;
-  let best: Bubble | null = null;
-  let bestY = -Infinity;
-
-  for (let i = 0; i < arr.length; i++) {
-    const b = arr[i]!;
-    if (!b.alive || b.popped) continue;
-    if (b.letter !== letter) continue;
-
-    if (b.y > bestY) {
-      bestY = b.y;
-      best = b;
-    }
-  }
-  return best;
-}
-
-function tryPopByVoice(now: number) {
-  if (!isRunning.value) return;
-  if (interactionsLocked.value) return;
-  if (detector.state.value !== 'listening') return;
-
-  const s =
-    ((detector.stableDetectedSound?.value ?? detector.detectedSound.value) as Sound | null) ?? null;
-
-  const confRaw = detector.stableConfidence?.value ?? detector.confidence.value;
-
-  const conf = Number(confRaw);
-
-  if (!s || !Number.isFinite(conf) || conf < VOICE_MIN_CONF) {
-    voiceLast = null;
-    voiceStable = 0;
-    return;
-  }
-
-  if (settings.mode === 'target' && s !== settings.targetSound) {
-    voiceLast = null;
-    voiceStable = 0;
-    return;
-  }
-
-  if (voiceLast === s) voiceStable += 1;
-  else {
-    voiceLast = s;
-    voiceStable = 1;
-  }
-
-  if (voiceStable < VOICE_STABLE_FRAMES) return;
-  if (now - voiceLastFire < VOICE_COOLDOWN_MS) return;
-
-  if (settings.mode === 'target') {
-    const b = pickAliveBubbleByLetter(settings.targetSound);
-    if (!b) return;
-
-    voiceLastFire = now;
-    resetVoiceGate({ keepCooldown: true });
-
-    const c = bubbleClientCenter(b);
-    popBubbleAsCorrect(b, c.clientX, c.clientY);
-    return;
-  }
-
-  if (!settings.selectedSounds.includes(s)) return;
-
-  const b = pickAliveBubbleByLetter(s);
-  if (!b) return;
-
-  voiceLastFire = now;
-  resetVoiceGate({ keepCooldown: true });
-
-  const c = bubbleClientCenter(b);
-  popBubbleAsCorrect(b, c.clientX, c.clientY);
-}
-/** ====== end pop by recognized sound ====== */
-
 function resetRoundState() {
   rewardText.value = '';
   score.value = 0;
@@ -533,12 +544,9 @@ function resetRoundState() {
 
   spawnAcc = 0;
   lastTs = 0;
-  lastSweepTs = 0;
 
   dirtyBubbles = false;
   dirtyParticles = false;
-
-  resetVoiceGate();
 }
 
 async function startRound() {
@@ -554,7 +562,6 @@ async function startRound() {
 
 function pauseRound() {
   if (!isRunning.value) return;
-
   gameState.value = 'paused';
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
@@ -583,11 +590,13 @@ function stopRound(showReward: boolean) {
 
   clearAllEntitiesToPool();
 
-  resetVoiceGate();
-
   if (showReward) {
     rewardText.value =
-      score.value >= 8 ? 'Супер!' : score.value >= 4 ? 'Класс!' : 'Отлично получилось!';
+      score.value >= 8
+        ? t('soundpop.rewards.super')
+        : score.value >= 4
+          ? t('soundpop.rewards.cool')
+          : t('soundpop.rewards.good');
   } else {
     rewardText.value = '';
     score.value = 0;
@@ -598,7 +607,6 @@ function stopRound(showReward: boolean) {
 
     spawnAcc = 0;
     lastTs = 0;
-    lastSweepTs = 0;
   }
 }
 
@@ -628,9 +636,6 @@ function loop(ts: number) {
 
   const now = ts;
 
-  // voice pop (ANY sound)
-  tryPopByVoice(now);
-
   // spawn
   const m = computeDifficultyMultiplier();
   const baseSpawn = 0.85 / m;
@@ -641,7 +646,7 @@ function loop(ts: number) {
     spawnBubble(m);
   }
 
-  // bubbles
+  // bubbles motion
   let touchedB = false;
   for (let i = 0; i < bubbles.value.length; i++) {
     const b = bubbles.value[i]!;
@@ -681,14 +686,8 @@ function loop(ts: number) {
     if (touchedP) markDirtyP();
   }
 
-  // sweep (time-based)
-  if (
-    lastSweepTs === 0 ||
-    ts - lastSweepTs >= 120 ||
-    bubbles.value.length > 64 ||
-    particles.value.length > 512
-  ) {
-    lastSweepTs = ts;
+  // sweep
+  if (ts % 120 < 16 || bubbles.value.length > 64 || particles.value.length > 512) {
     sweepDeadInPlace(now);
   }
 
@@ -696,6 +695,7 @@ function loop(ts: number) {
   rafId = requestAnimationFrame(loop);
 }
 
+/** pointer / keyboard pop */
 function onBubblePointerDown(b: Bubble, e: PointerEvent) {
   if (!isRunning.value) return;
   if (interactionsLocked.value) return;
@@ -704,7 +704,7 @@ function onBubblePointerDown(b: Bubble, e: PointerEvent) {
   e.preventDefault();
   e.stopPropagation();
 
-  if (isCorrectBubble(b)) popBubbleAsCorrect(b, e.clientX, e.clientY);
+  if (isCorrectBubbleTap(b)) popBubbleAsCorrect(b, e.clientX, e.clientY);
   else applyWrongTapFeedback(b);
 }
 
@@ -719,7 +719,7 @@ function onBubbleKeydown(b: Bubble, e: KeyboardEvent) {
   e.stopPropagation();
 
   const c = bubbleClientCenter(b);
-  if (isCorrectBubble(b)) popBubbleAsCorrect(b, c.clientX, c.clientY);
+  if (isCorrectBubbleTap(b)) popBubbleAsCorrect(b, c.clientX, c.clientY);
   else applyWrongTapFeedback(b);
 }
 
@@ -742,92 +742,6 @@ function setMode(v: GameMode) {
 }
 function setRoundSeconds(v: number) {
   settings.roundSeconds = clamp(Math.round(v), 30, 60);
-}
-
-/** onboarding */
-function focusOnboarding() {
-  onboardingModalRef.value?.focus();
-}
-
-function openOnboardingIfNeeded() {
-  if (onboardingStep.value < 0) onboardingStep.value = 0;
-
-  nextTick(() => focusOnboarding());
-
-  onboardingPausedGame.value = false;
-  if (isRunning.value) {
-    onboardingPausedGame.value = true;
-    pauseRound();
-  }
-}
-
-function nextOnboarding() {
-  if (onboardingStep.value < 2) {
-    onboardingStep.value += 1;
-    nextTick(() => focusOnboarding());
-  } else {
-    closeOnboarding();
-  }
-}
-
-function closeOnboarding() {
-  const shouldResume = onboardingPausedGame.value;
-  onboardingStep.value = -1;
-
-  nextTick(() => {
-    if (shouldResume && isPaused.value && onboardingStep.value < 0) {
-      onboardingPausedGame.value = false;
-      resumeRound();
-    } else {
-      onboardingPausedGame.value = false;
-    }
-  });
-}
-
-function skipOnboarding() {
-  closeOnboarding();
-}
-
-function handleOnboardingKeydown(e: KeyboardEvent) {
-  if (!onboardingOpen.value) return;
-  if (e.key !== 'Escape') return;
-  e.preventDefault();
-  closeOnboarding();
-}
-
-watch(
-  onboardingOpen,
-  (open) => {
-    if (open) document.addEventListener('keydown', handleOnboardingKeydown);
-    else document.removeEventListener('keydown', handleOnboardingKeydown);
-  },
-  { immediate: true }
-);
-
-watch(
-  () => settings.roundSeconds,
-  () => {
-    if (isIdle.value) {
-      timeLeftMs = settings.roundSeconds * 1000;
-      timeLeft.value = settings.roundSeconds;
-      lastUiTimeUpdateTs = 0;
-
-      resetVoiceGate();
-    }
-  }
-);
-
-/** mic */
-async function enableMic() {
-  try {
-    await detector.start();
-  } catch {
-    // ignore
-  }
-}
-function disableMic() {
-  detector.stop();
-  resetVoiceGate();
 }
 
 /** visibility auto-pause */
@@ -860,28 +774,26 @@ onUnmounted(() => {
     rafId = null;
   }
 
-  detector.stop();
-
   document.removeEventListener('keydown', handleOnboardingKeydown);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
 
   clearAllEntitiesToPool();
 });
 
-const detectedSoundLabel = computed(() => {
-  const s = detector.detectedSound.value as Sound | null;
-  return s ? soundLabel(s) : '♬';
-});
-
-const detectedConfPct = computed(() => {
-  const c = Number(detector.confidence.value);
-  if (!Number.isFinite(c)) return 0;
-  return Math.round(clamp(c, 0, 1) * 100);
-});
+watch(
+  () => settings.roundSeconds,
+  () => {
+    if (isIdle.value) {
+      timeLeftMs = settings.roundSeconds * 1000;
+      timeLeft.value = settings.roundSeconds;
+      lastUiTimeUpdateTs = 0;
+    }
+  }
+);
 </script>
 
 <template>
-  <section class="mt-6" aria-label="Sound Pop Game">
+  <section class="mt-6" :aria-label="t('soundpop.aria.section')">
     <div class="mx-auto max-w-6xl">
       <div
         class="relative overflow-hidden rounded-3xl border border-sky-200/60 bg-white shadow-[0_30px_80px_rgba(2,132,199,0.14)]"
@@ -909,15 +821,15 @@ const detectedConfPct = computed(() => {
                   <span class="h-2 w-2 rounded-full bg-sky-400"></span>
                 </span>
                 <h2 class="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-                  {{ t('game.title') }}
+                  {{ t('soundpop.title') }}
                 </h2>
               </div>
 
               <p class="mt-2 max-w-[72ch] text-xs text-slate-600 sm:text-sm">
-                {{ t('game.subtitle') }}
+                {{ t('soundpop.subtitle') }}
               </p>
               <p class="mt-2 max-w-[72ch] text-xs text-slate-600 sm:text-sm">
-                Лопай пузыри с буквами. Раунд 30–60 секунд.
+                {{ t('soundpop.hintRound') }}
               </p>
             </div>
 
@@ -927,8 +839,12 @@ const detectedConfPct = computed(() => {
               >
                 <span class="h-2 w-2 rounded-full bg-sky-400" aria-hidden="true"></span>
                 <div class="min-w-0">
-                  <p class="text-[11px] font-semibold text-slate-500">Время</p>
-                  <p class="text-sm font-extrabold text-slate-900">{{ timeLeftCeil }}с</p>
+                  <p class="text-[11px] font-semibold text-slate-500">
+                    {{ t('soundpop.ui.time') }}
+                  </p>
+                  <p class="text-sm font-extrabold text-slate-900">
+                    {{ timeLeftCeil }}{{ t('soundpop.ui.seconds') }}
+                  </p>
                 </div>
               </div>
 
@@ -937,7 +853,9 @@ const detectedConfPct = computed(() => {
               >
                 <span class="h-2 w-2 rounded-full bg-pink-400" aria-hidden="true"></span>
                 <div class="min-w-0">
-                  <p class="text-[11px] font-semibold text-slate-500">Счёт</p>
+                  <p class="text-[11px] font-semibold text-slate-500">
+                    {{ t('soundpop.ui.score') }}
+                  </p>
                   <p class="text-sm font-extrabold text-slate-900">{{ score }}</p>
                 </div>
               </div>
@@ -969,18 +887,18 @@ const detectedConfPct = computed(() => {
               class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98] disabled:opacity-60"
               @click="stopRound(false)"
               :disabled="isIdle"
-              aria-label="Остановить"
+              :aria-label="t('soundpop.aria.stop')"
             >
-              Стоп
+              {{ t('soundpop.actions.stop') }}
             </button>
 
             <button
               type="button"
               class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-pink-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98]"
               @click="openOnboardingIfNeeded"
-              aria-label="Показать подсказки"
+              :aria-label="t('soundpop.aria.tips')"
             >
-              Подсказки
+              {{ t('soundpop.actions.tips') }}
             </button>
           </div>
 
@@ -1006,7 +924,7 @@ const detectedConfPct = computed(() => {
                 class="relative overflow-hidden rounded-3xl border border-sky-200/70 bg-white shadow-[0_18px_60px_rgba(14,165,233,0.14)] h-[calc(100dvh-290px)] min-h-[320px] sm:h-auto sm:min-h-[520px] lg:h-full lg:min-h-0"
                 style="touch-action: none"
                 role="region"
-                aria-label="Игровое поле Sound Pop"
+                :aria-label="t('soundpop.aria.field')"
               >
                 <div aria-hidden="true" class="pointer-events-none absolute inset-0">
                   <div
@@ -1047,7 +965,7 @@ const detectedConfPct = computed(() => {
                     :disabled="b.popped || !isRunning || interactionsLocked"
                     @pointerdown="onBubblePointerDown(b, $event)"
                     @keydown="onBubbleKeydown(b, $event)"
-                    :aria-label="`Пузырь с буквой ${soundLabel(b.letter)}`"
+                    :aria-label="`${t('soundpop.aria.bubble')} ${b.word}`"
                   >
                     <div
                       class="relative size-[80px] rounded-full border border-sky-200/70 bg-white/75 shadow-[0_18px_50px_rgba(2,132,199,0.16)] backdrop-blur"
@@ -1075,16 +993,16 @@ const detectedConfPct = computed(() => {
                       ></div>
 
                       <div
-                        class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-2xl font-black text-slate-900"
+                        class="absolute left-1/2 top-1/2 w-[74px] -translate-x-1/2 -translate-y-1/2 text-center text-[14px] font-black leading-tight text-slate-900"
                       >
-                        {{ soundLabel(b.letter) }}
+                        {{ b.word }}
                       </div>
 
                       <div
                         v-if="b.smile"
                         class="absolute left-1/2 top-[70%] -translate-x-1/2 text-[11px] font-semibold text-slate-700 animate-driftUp"
                       >
-                        Хи-хи 🙂
+                        {{ t('soundpop.ui.softHint') }}
                       </div>
                     </div>
                   </button>
@@ -1103,8 +1021,10 @@ const detectedConfPct = computed(() => {
                   <div
                     class="rounded-3xl border border-sky-200/70 bg-white/75 px-6 py-5 shadow-sm backdrop-blur"
                   >
-                    <p class="text-sm font-extrabold text-slate-900">Готов?</p>
-                    <p class="mt-1 text-xs text-slate-600">Нажми “Старт” — и лови звук.</p>
+                    <p class="text-sm font-extrabold text-slate-900">
+                      {{ t('soundpop.ui.readyTitle') }}
+                    </p>
+                    <p class="mt-1 text-xs text-slate-600">{{ t('soundpop.ui.readyText') }}</p>
                   </div>
                 </div>
 
@@ -1116,13 +1036,15 @@ const detectedConfPct = computed(() => {
                     class="absolute left-1/2 top-1/2 w-[92%] max-w-[560px] -translate-x-1/2 -translate-y-1/2 max-h-[calc(100dvh-120px)] overflow-hidden rounded-3xl border border-sky-200/70 bg-white/85 p-5 shadow-[0_30px_80px_rgba(2,132,199,0.20)] backdrop-blur sm:p-6 sm:max-h-[80vh]"
                     role="dialog"
                     aria-modal="true"
-                    aria-label="Подсказки"
+                    :aria-label="t('soundpop.tips.title')"
                     tabindex="-1"
                   >
                     <div class="flex items-start justify-between gap-3">
                       <div>
-                        <p class="text-sm font-extrabold text-slate-900">Подсказки</p>
-                        <p class="mt-1 text-xs text-slate-600">2–3 шага, минимум текста</p>
+                        <p class="text-sm font-extrabold text-slate-900">
+                          {{ t('soundpop.tips.title') }}
+                        </p>
+                        <p class="mt-1 text-xs text-slate-600">{{ t('soundpop.tips.subtitle') }}</p>
                       </div>
 
                       <button
@@ -1130,7 +1052,7 @@ const detectedConfPct = computed(() => {
                         class="inline-flex min-h-[40px] items-center justify-center rounded-2xl border border-pink-200/70 bg-white/70 px-3 py-2 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98]"
                         @click="skipOnboarding"
                       >
-                        Пропустить
+                        {{ t('soundpop.tips.skip') }}
                       </button>
                     </div>
 
@@ -1138,17 +1060,16 @@ const detectedConfPct = computed(() => {
                       class="mt-4 rounded-3xl border border-sky-200/70 bg-white/70 p-4 backdrop-blur"
                     >
                       <p v-if="onboardingStep === 0" class="text-sm font-semibold text-slate-900">
-                        1) Нажимай на пузыри с нужной буквой.
+                        {{ t('soundpop.tips.step1') }}
                       </p>
                       <p
                         v-else-if="onboardingStep === 1"
                         class="text-sm font-semibold text-slate-900"
                       >
-                        2) Если нажал не туда — это не ошибка. Будет мягкая подсказка.
+                        {{ t('soundpop.tips.step2') }}
                       </p>
                       <p v-else class="text-sm font-semibold text-slate-900">
-                        3) Можно включить микрофон: мы показываем шкалу громкости. Аудио не
-                        сохраняется.
+                        {{ t('soundpop.tips.step3') }}
                       </p>
                     </div>
 
@@ -1156,7 +1077,9 @@ const detectedConfPct = computed(() => {
                       <div
                         class="rounded-2xl border border-pink-200/70 bg-white/70 px-4 py-3 shadow-sm backdrop-blur"
                       >
-                        <p class="text-xs font-semibold text-slate-600">Шаг</p>
+                        <p class="text-xs font-semibold text-slate-600">
+                          {{ t('soundpop.tips.step') }}
+                        </p>
                         <p class="text-sm font-extrabold text-slate-900">
                           {{ onboardingStep + 1 }}/3
                         </p>
@@ -1184,11 +1107,11 @@ const detectedConfPct = computed(() => {
                               );
                           "
                         ></span>
-                        <span class="relative">Дальше</span>
+                        <span class="relative">{{ t('soundpop.tips.next') }}</span>
                       </button>
                     </div>
 
-                    <p class="mt-3 text-[11px] text-slate-500">Escape закрывает подсказки.</p>
+                    <p class="mt-3 text-[11px] text-slate-500">{{ t('soundpop.tips.esc') }}</p>
                   </div>
                 </div>
               </div>
@@ -1199,7 +1122,9 @@ const detectedConfPct = computed(() => {
             class="lg:col-span-4 border-t border-sky-200/50 bg-white/55 p-4 backdrop-blur sm:p-6 lg:border-l lg:border-t-0 h-full"
           >
             <div class="flex items-center justify-between">
-              <p class="text-sm font-extrabold text-slate-900">Настройки</p>
+              <p class="text-sm font-extrabold text-slate-900">
+                {{ t('soundpop.settings.title') }}
+              </p>
             </div>
 
             <div class="mt-3 space-y-2">
@@ -1210,57 +1135,8 @@ const detectedConfPct = computed(() => {
                 <summary
                   class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
                 >
-                  Микрофон
+                  {{ t('soundpop.mic.title') }}
                 </summary>
-                <div class="space-y-3 px-4 pb-4">
-                  <p class="text-xs text-slate-600">
-                    Мы показываем уровень громкости микрофона. Аудио не сохраняется.
-                  </p>
-
-                  <div class="flex flex-wrap gap-2">
-                    <button
-                      v-if="detector.state.value !== 'listening'"
-                      type="button"
-                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-gradient-to-br from-sky-200 to-sky-100 px-4 py-3 font-extrabold text-slate-900 shadow-sm transition active:scale-[0.98]"
-                      @click="enableMic"
-                    >
-                      Включить
-                    </button>
-
-                    <button
-                      v-else
-                      type="button"
-                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition active:scale-[0.98]"
-                      @click="disableMic"
-                    >
-                      Выключить
-                    </button>
-                  </div>
-
-                  <div>
-                    <div class="flex items-center justify-between">
-                      <p class="text-xs font-semibold text-slate-600">Шкала громкости</p>
-                      <p class="text-xs font-extrabold text-slate-900">{{ audioPercent }}%</p>
-                    </div>
-                    <div class="mt-2 h-3 overflow-hidden rounded-full bg-sky-100">
-                      <div
-                        class="h-full rounded-full bg-gradient-to-r from-sky-300 to-pink-300"
-                        :style="{ width: `${audioPercent}%` }"
-                      ></div>
-                    </div>
-                  </div>
-
-                  <p v-if="detector.state.value === 'error'" class="text-xs text-slate-600">
-                    {{ detector.errorMessage.value }}
-                  </p>
-
-                  <div class="mt-2 flex items-center justify-between">
-                    <p class="text-xs font-semibold text-slate-600">Звук</p>
-                    <p class="text-xs font-extrabold text-slate-900">
-                      {{ detectedSoundLabel }} {{ detectedConfPct }}
-                    </p>
-                  </div>
-                </div>
               </details>
 
               <details
@@ -1270,8 +1146,9 @@ const detectedConfPct = computed(() => {
                 <summary
                   class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
                 >
-                  Режим
+                  {{ t('soundpop.mode.title') }}
                 </summary>
+
                 <div class="px-4 pb-4">
                   <div class="grid grid-cols-2 gap-2">
                     <button
@@ -1286,8 +1163,9 @@ const detectedConfPct = computed(() => {
                       @click="setMode('target')"
                       :disabled="!isIdle"
                     >
-                      Лови звук
+                      {{ t('soundpop.mode.target') }}
                     </button>
+
                     <button
                       type="button"
                       class="min-h-[44px] rounded-2xl border border-sky-200/70 bg-white/70 px-3 py-3 text-sm font-semibold text-slate-900 shadow-sm backdrop-blur active:scale-[0.98] disabled:opacity-60"
@@ -1300,7 +1178,7 @@ const detectedConfPct = computed(() => {
                       @click="setMode('mixed')"
                       :disabled="!isIdle"
                     >
-                      Смешанный
+                      {{ t('soundpop.mode.mixed') }}
                     </button>
                   </div>
                 </div>
@@ -1313,11 +1191,14 @@ const detectedConfPct = computed(() => {
                 <summary
                   class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
                 >
-                  Буквы
+                  {{ t('soundpop.words.title') }}
                 </summary>
+
                 <div class="space-y-3 px-4 pb-4">
                   <div>
-                    <p class="text-xs font-semibold text-slate-600">Целевой звук</p>
+                    <p class="text-xs font-semibold text-slate-600">
+                      {{ t('soundpop.words.target') }}
+                    </p>
                     <div class="mt-2 grid grid-cols-3 gap-2">
                       <button
                         v-for="s in ['R', 'L', 'SH'] as const"
@@ -1339,7 +1220,9 @@ const detectedConfPct = computed(() => {
                   </div>
 
                   <div>
-                    <p class="text-xs font-semibold text-slate-600">Звуки (multi-select)</p>
+                    <p class="text-xs font-semibold text-slate-600">
+                      {{ t('soundpop.words.multi') }}
+                    </p>
                     <div class="mt-2 grid grid-cols-3 gap-2">
                       <button
                         v-for="s in ['R', 'L', 'SH'] as const"
@@ -1368,11 +1251,14 @@ const detectedConfPct = computed(() => {
                 <summary
                   class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
                 >
-                  Сложность и время
+                  {{ t('soundpop.difficulty.title') }}
                 </summary>
+
                 <div class="space-y-3 px-4 pb-4">
                   <div>
-                    <p class="text-xs font-semibold text-slate-600">Уровень</p>
+                    <p class="text-xs font-semibold text-slate-600">
+                      {{ t('soundpop.difficulty.level') }}
+                    </p>
                     <div class="mt-2 grid grid-cols-3 gap-2">
                       <button
                         v-for="lv in [1, 2, 3] as const"
@@ -1395,11 +1281,14 @@ const detectedConfPct = computed(() => {
 
                   <div>
                     <div class="flex items-center justify-between">
-                      <p class="text-xs font-semibold text-slate-600">Длина раунда</p>
+                      <p class="text-xs font-semibold text-slate-600">
+                        {{ t('soundpop.difficulty.round') }}
+                      </p>
                       <p class="text-xs font-extrabold text-slate-900">
-                        {{ settings.roundSeconds }}с
+                        {{ settings.roundSeconds }}{{ t('soundpop.ui.seconds') }}
                       </p>
                     </div>
+
                     <input
                       class="mt-2 w-full accent-sky-400"
                       type="range"
@@ -1409,13 +1298,12 @@ const detectedConfPct = computed(() => {
                       :value="settings.roundSeconds"
                       @input="setRoundSeconds(Number(($event.target as HTMLInputElement).value))"
                       :disabled="!isIdle"
-                      aria-label="Длина раунда"
+                      :aria-label="t('soundpop.aria.roundLength')"
                     />
                   </div>
 
                   <p class="text-[12px] text-slate-500">
-                    В “Смешанном” режиме пузыри появляются из выбранных звуков — и все они
-                    засчитываются.
+                    {{ t('soundpop.difficulty.note') }}
                   </p>
                 </div>
               </details>
@@ -1431,5 +1319,41 @@ const detectedConfPct = computed(() => {
 .particle-dot {
   background: rgba(244, 114, 182, 0.75);
   box-shadow: 0 14px 35px rgba(244, 114, 182, 0.18);
+}
+
+/* minimal animations (so component is self-contained) */
+@keyframes pop {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  70% {
+    transform: scale(1.08);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(0.82);
+    opacity: 0;
+  }
+}
+.animate-pop {
+  animation: pop 220ms ease-out forwards;
+}
+
+@keyframes driftUp {
+  0% {
+    transform: translate(-50%, 0);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -10px);
+    opacity: 0;
+  }
+}
+.animate-driftUp {
+  animation: driftUp 420ms ease-out forwards;
 }
 </style>
