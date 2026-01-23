@@ -2,6 +2,8 @@ export type Sound = 'R' | 'L' | 'SH';
 export type GameMode = 'target' | 'mixed';
 export type Level = 1 | 2 | 3;
 
+export type BubbleRemoveReason = 'hit' | 'miss';
+
 export type Bubble = {
   id: string;
   x: number;
@@ -11,10 +13,10 @@ export type Bubble = {
   word: string;
 
   alive: boolean;
-
   popped: boolean;
-
+  removeReason: BubbleRemoveReason | null;
   removeAt: number | null;
+
   tf: string;
 };
 

@@ -11,7 +11,14 @@ import {
   watch,
 } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { Bubble, GameMode, Level, Particle, Sound } from '../types/soundPop';
+import type {
+  Bubble,
+  BubbleRemoveReason,
+  GameMode,
+  Level,
+  Particle,
+  Sound,
+} from '../types/soundPop';
 
 const { t, locale } = useI18n();
 
@@ -76,8 +83,10 @@ function commitFrame() {
   }
 }
 
-function safeNow() {
-  return performance.now();
+let frameTs: number | null = null;
+
+function nowTs() {
+  return frameTs ?? performance.now();
 }
 
 function clamp(v: number, a: number, b: number) {
@@ -253,11 +262,13 @@ function getBubble(): Bubble {
       word: '',
       alive: true,
       popped: false,
+      removeReason: null,
       removeAt: null,
       tf: '',
     }
   );
 }
+
 function recycleBubble(b: Bubble) {
   if (bubblePool.length < 200) bubblePool.push(b);
 }
@@ -393,6 +404,7 @@ function spawnBubble(m: number) {
 
   b.alive = true;
   b.popped = false;
+  b.removeReason = null;
   b.removeAt = null;
   updateBubbleTransform(b);
 
@@ -402,10 +414,11 @@ function spawnBubble(m: number) {
   markDirtyB();
 }
 
-function removeBubble(b: Bubble, now: number, keepMs: number) {
+function removeBubble(b: Bubble, now: number, keepMs: number, reason: BubbleRemoveReason) {
   if (b.popped) return;
 
   b.popped = true;
+  b.removeReason = reason;
 
   if (b.alive) {
     b.alive = false;
@@ -466,8 +479,7 @@ function clearAllEntitiesToPool() {
   triggerRef(particles);
 }
 
-function addParticles(clientX: number, clientY: number) {
-  const now = safeNow();
+function addParticles(clientX: number, clientY: number, now: number) {
   const pt = containerPointFromClient(clientX, clientY);
 
   const count = 14;
@@ -497,13 +509,13 @@ function popBubble(b: Bubble, clientX: number, clientY: number) {
   if (interactionsLocked.value) return;
   if (b.popped) return;
 
-  const now = safeNow();
-  removeBubble(b, now, 220);
+  const now = nowTs();
+  removeBubble(b, now, 220, 'hit');
 
   score.value += 1;
   rewardText.value = '';
 
-  addParticles(clientX, clientY);
+  addParticles(clientX, clientY, now);
 }
 
 async function ensureSizeBeforeLoop() {
@@ -543,12 +555,14 @@ async function startRound() {
   gameState.value = 'running';
 
   await ensureSizeBeforeLoop();
+  frameTs = null;
   rafId = requestAnimationFrame(loop);
 }
 
 function pauseRound() {
   if (!isRunning.value) return;
   gameState.value = 'paused';
+  frameTs = null;
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
     rafId = null;
@@ -561,6 +575,7 @@ function resumeRound() {
 
   gameState.value = 'running';
   lastTs = 0;
+  frameTs = null;
   rafId = requestAnimationFrame(loop);
 }
 
@@ -568,7 +583,7 @@ function stopRound(showReward: boolean) {
   if (isIdle.value) return;
 
   gameState.value = 'idle';
-
+  frameTs = null;
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
     rafId = null;
@@ -598,6 +613,8 @@ function stopRound(showReward: boolean) {
 
 function loop(ts: number) {
   if (!isRunning.value) return;
+
+  frameTs = ts;
 
   if (lastTs === 0) lastTs = ts;
 
@@ -641,7 +658,7 @@ function loop(ts: number) {
     b.y += b.vy * dtMotion;
 
     if (b.y > height.value + BUBBLE_SIZE) {
-      removeBubble(b, now, 50);
+      removeBubble(b, now, 50, 'miss');
       touchedB = true;
     } else {
       updateBubbleTransform(b);
@@ -887,7 +904,7 @@ watch(
 
           <div
             v-if="rewardText"
-            class="mt-4 flex items-start gap-3 rounded-2xl border border-pink-200/60 bg-white/75 px-4 py-3 shadow-sm backdrop-blur"
+            class="mt-4 flex items-center gap-3 rounded-2xl border border-pink-200/60 bg-white/75 px-4 py-3 shadow-sm backdrop-blur"
           >
             <span
               class="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-200 to-sky-200 shadow-sm"
@@ -952,7 +969,7 @@ watch(
                   >
                     <div
                       class="relative size-[80px] rounded-full border border-sky-200/70 bg-white/75 shadow-[0_18px_50px_rgba(2,132,199,0.16)] backdrop-blur"
-                      :class="[b.popped ? 'animate-pop' : '']"
+                      :class="[b.removeReason === 'hit' ? 'animate-pop' : '']"
                     >
                       <div
                         aria-hidden="true"
