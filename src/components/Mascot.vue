@@ -366,7 +366,12 @@ const floatEnter = computed(() =>
     : {
         y: [0, -6, 0],
         rotate: [0, -1.5, 0, 1.5, 0],
-        transition: { duration: 2.8, repeat: Infinity, repeatType: 'mirror', ease: 'easeInOut' },
+        transition: {
+          duration: 2.8,
+          repeat: Infinity,
+          repeatType: 'mirror' as const,
+          ease: 'easeInOut',
+        },
       }
 );
 </script>

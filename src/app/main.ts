@@ -4,10 +4,12 @@ import App from './App.vue';
 import '../styles/tailwind.css';
 
 import { i18n } from './i18n';
+import { MotionPlugin } from '@vueuse/motion';
 
 const app = createApp(App);
 
 app.use(createHead());
+app.use(MotionPlugin);
 app.use(i18n);
 
 app.mount('#app');
