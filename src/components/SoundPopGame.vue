@@ -19,6 +19,7 @@ import type {
   Particle,
   Sound,
 } from '../types/soundPop';
+import { useMicLevel } from '../composables/useMicLevel';
 
 const { t, locale } = useI18n();
 
@@ -48,6 +49,41 @@ const isIdle = computed(() => gameState.value === 'idle');
 const timeLeft = ref(settings.roundSeconds);
 const score = ref(0);
 const rewardText = ref<string>('');
+
+/** mic (step 1: level meter only) */
+const mic = useMicLevel();
+
+const micOn = computed(() => mic.state.value === 'listening');
+const micStarting = computed(() => mic.state.value === 'starting');
+const micUnsupported = computed(() => mic.state.value === 'unsupported');
+const micError = computed(() => mic.state.value === 'error');
+
+const micLevelPct = computed(() => {
+  const v = Number(mic.level.value || 0);
+  return Math.max(0, Math.min(100, Math.round(v * 100)));
+});
+
+const micBarStyle = computed(() => ({
+  width: `${micLevelPct.value}%`,
+}));
+
+function micErrorText(code: string) {
+  const key = `soundpop.mic.errors.${code}`;
+  const translated = t(key);
+  return translated === key ? code : translated;
+}
+
+const micStatusText = computed(() => {
+  if (micUnsupported.value) return t('soundpop.mic.unsupported');
+  if (micStarting.value) return t('soundpop.mic.starting');
+
+  if (micError.value) {
+    const code = String(mic.errorMessage.value || 'mic_error');
+    return micErrorText(code);
+  }
+
+  return micOn.value ? `${micLevelPct.value}%` : t('soundpop.mic.noSound');
+});
 
 /** entities */
 const bubbles = shallowRef<Bubble[]>([]);
@@ -121,18 +157,18 @@ function soundLabel(s: Sound) {
 /** ===== words to spawn (short, child-friendly) ===== */
 const WORDS: Record<'ru' | 'kk' | 'en', Record<Sound, string[]>> = {
   ru: {
-    R: ['рыба', 'робот', 'ракета', 'радуга', 'роза'],
-    L: ['лев', 'луна', 'лист', 'лимон', 'лапа'],
-    SH: ['шар', 'шапка', 'шишка', 'шум', 'шарик'],
+    R: ['робот', 'ракета', 'рыцарь', 'радуга', 'ракетка'],
+    L: ['лев', 'лимонад', 'лего', 'лиса', 'лабиринт'],
+    SH: ['шахматы', 'шоколад', 'шлем', 'шарик', 'шутка'],
   },
   kk: {
-    R: ['робот', 'ракета', 'раушан', 'радио', 'роза'],
-    L: ['лақ', 'лимон', 'лего', 'лампа', 'лифт'],
-    SH: ['шар', 'шана', 'шай', 'шапка', 'шоколад'],
+    R: ['робот', 'ракета', 'раушан', 'радио', 'рыцарь'],
+    L: ['лақ', 'лимонад', 'лего', 'лақтыр', 'лимон'],
+    SH: ['шар', 'шана', 'шоколад', 'шай', 'шопан'],
   },
   en: {
-    R: ['rain', 'robot', 'rabbit', 'rocket', 'red'],
-    L: ['lion', 'lamp', 'leaf', 'lego', 'lake'],
+    R: ['robot', 'rocket', 'rainbow', 'raccoon', 'roller'],
+    L: ['lion', 'lego', 'lollipop', 'lamp', 'lizard'],
     SH: ['shark', 'ship', 'shoe', 'sheep', 'shell'],
   },
 };
@@ -761,6 +797,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  void mic.stop();
+
   ro?.disconnect();
   ro = null;
 
@@ -885,7 +923,7 @@ watch(
             <button
               type="button"
               class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98] disabled:opacity-60"
-              @click="stopRound(false)"
+              @click="() => stopRound(false)"
               :disabled="isIdle"
               :aria-label="t('soundpop.aria.stop')"
             >
@@ -1127,6 +1165,58 @@ watch(
                 >
                   {{ t('soundpop.mic.title') }}
                 </summary>
+
+                <div class="px-4 pb-4">
+                  <p class="text-[12px] text-slate-500">
+                    {{ t('soundpop.mic.desc') }}
+                  </p>
+
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <button
+                      v-if="!micOn"
+                      type="button"
+                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98] disabled:opacity-60"
+                      @click="mic.start()"
+                      :disabled="micUnsupported"
+                      :aria-label="t('soundpop.mic.enable')"
+                    >
+                      {{ t('soundpop.mic.enable') }}
+                    </button>
+
+                    <button
+                      v-else
+                      type="button"
+                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-pink-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98]"
+                      @click="mic.stop()"
+                      :aria-label="t('soundpop.mic.disable')"
+                    >
+                      {{ t('soundpop.mic.disable') }}
+                    </button>
+
+                    <div
+                      class="flex min-h-[44px] flex-1 items-center gap-3 rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 shadow-sm backdrop-blur"
+                    >
+                      <div class="h-2 flex-1 overflow-hidden rounded-full bg-slate-200/70">
+                        <div
+                          class="h-full rounded-full bg-sky-400 transition-[width] duration-75"
+                          :style="micBarStyle"
+                        ></div>
+                      </div>
+
+                      <p class="text-[12px] font-extrabold text-slate-900 tabular-nums">
+                        {{ micStatusText }}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p v-if="micUnsupported" class="mt-2 text-[12px] text-slate-500">
+                    {{ t('soundpop.mic.unsupported') }}
+                  </p>
+
+                  <p v-else-if="micError" class="mt-2 text-[12px] text-pink-700">
+                    {{ micStatusText }}
+                  </p>
+                </div>
               </details>
 
               <details

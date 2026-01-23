@@ -120,7 +120,7 @@
       "confidence": "Confidence",
       "recognized": "Recognized",
       "noWord": "—",
-      "noSound": "—",
+      "noSound": "♬",
       "unsupported": "Microphone/speech recognition is not supported in this browser"
     },
     "mode": {
