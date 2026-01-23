@@ -46,7 +46,7 @@ function book() {
             <div
               class="mt-5 inline-flex items-center gap-2 rounded-2xl bg-blue-100 border border-ink/10 px-4 py-2"
             >
-              <span class="size-2.5 rounded-full bg-mint-300" aria-hidden="true" />
+              <span class="size-2.5 rounded-full bg-pink-300/40" aria-hidden="true" />
               <p class="text-xs font-semibold text-ink/70">{{ t('parents.safetyNote') }}</p>
             </div>
           </div>
