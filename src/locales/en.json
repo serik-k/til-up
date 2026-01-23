@@ -1,6 +1,8 @@
 {
   "app": {
     "brand": "Til Up",
+    "holdToKids": "Hold → Kids",
+    "holdToParents": "Hold → Parents",
     "tagline": "speech therapy game for ages 3–9",
     "mode": "Mode",
     "modeLabel": "Mode",
@@ -145,7 +147,7 @@
       "next": "Next",
       "esc": "Escape closes tips.",
       "step1": "1) Say a word and pop a bubble.",
-      "step2": "2) Wrong tap shows a gentle hint.",
+      "step2": "2) Tap a bubble — it pops and you get 1 point.",
       "step3": "3) Enable the mic and say short words."
     },
     "aria": {

@@ -15,7 +15,6 @@ export type Bubble = {
   alive: boolean;
 
   popped: boolean;
-  smile: boolean;
 
   removeAt: number | null;
   tf: string;

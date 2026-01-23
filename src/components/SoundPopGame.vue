@@ -253,7 +253,6 @@ function getBubble(): Bubble {
       word: '',
       alive: true,
       popped: false,
-      smile: false,
       removeAt: null,
       tf: '',
     }
@@ -393,7 +392,6 @@ function spawnBubble(m: number) {
   b.word = word;
 
   b.alive = true;
-  b.smile = false;
   b.popped = false;
   b.removeAt = null;
   updateBubbleTransform(b);
@@ -404,11 +402,10 @@ function spawnBubble(m: number) {
   markDirtyB();
 }
 
-function killBubble(b: Bubble, now: number, keepMs: number, smile: boolean) {
+function removeBubble(b: Bubble, now: number, keepMs: number) {
   if (b.popped) return;
 
   b.popped = true;
-  b.smile = smile;
 
   if (b.alive) {
     b.alive = false;
@@ -495,24 +492,13 @@ function addParticles(clientX: number, clientY: number) {
   markDirtyP();
 }
 
-function isCorrectBubbleTap(b: Bubble): boolean {
-  if (settings.mode === 'mixed') return settings.selectedSounds.includes(b.letter);
-  return b.letter === settings.targetSound;
-}
-
-function applyWrongTapFeedback(b: Bubble) {
-  rewardText.value = '';
-  const now = safeNow();
-  killBubble(b, now, 420, true);
-}
-
-function popBubbleAsCorrect(b: Bubble, clientX: number, clientY: number) {
+function popBubble(b: Bubble, clientX: number, clientY: number) {
   if (!isRunning.value) return;
   if (interactionsLocked.value) return;
   if (b.popped) return;
 
   const now = safeNow();
-  killBubble(b, now, 220, false);
+  removeBubble(b, now, 220);
 
   score.value += 1;
   rewardText.value = '';
@@ -655,7 +641,7 @@ function loop(ts: number) {
     b.y += b.vy * dtMotion;
 
     if (b.y > height.value + BUBBLE_SIZE) {
-      killBubble(b, now, 50, false);
+      removeBubble(b, now, 50);
       touchedB = true;
     } else {
       updateBubbleTransform(b);
@@ -695,7 +681,6 @@ function loop(ts: number) {
   rafId = requestAnimationFrame(loop);
 }
 
-/** pointer / keyboard pop */
 function onBubblePointerDown(b: Bubble, e: PointerEvent) {
   if (!isRunning.value) return;
   if (interactionsLocked.value) return;
@@ -704,8 +689,7 @@ function onBubblePointerDown(b: Bubble, e: PointerEvent) {
   e.preventDefault();
   e.stopPropagation();
 
-  if (isCorrectBubbleTap(b)) popBubbleAsCorrect(b, e.clientX, e.clientY);
-  else applyWrongTapFeedback(b);
+  popBubble(b, e.clientX, e.clientY);
 }
 
 function onBubbleKeydown(b: Bubble, e: KeyboardEvent) {
@@ -719,8 +703,7 @@ function onBubbleKeydown(b: Bubble, e: KeyboardEvent) {
   e.stopPropagation();
 
   const c = bubbleClientCenter(b);
-  if (isCorrectBubbleTap(b)) popBubbleAsCorrect(b, c.clientX, c.clientY);
-  else applyWrongTapFeedback(b);
+  popBubble(b, c.clientX, c.clientY);
 }
 
 /** settings */
@@ -969,10 +952,7 @@ watch(
                   >
                     <div
                       class="relative size-[80px] rounded-full border border-sky-200/70 bg-white/75 shadow-[0_18px_50px_rgba(2,132,199,0.16)] backdrop-blur"
-                      :class="[
-                        b.popped ? 'animate-pop' : '',
-                        b.smile ? 'ring-4 ring-pink-200/70' : '',
-                      ]"
+                      :class="[b.popped ? 'animate-pop' : '']"
                     >
                       <div
                         aria-hidden="true"
@@ -996,13 +976,6 @@ watch(
                         class="absolute left-1/2 top-1/2 w-[74px] -translate-x-1/2 -translate-y-1/2 text-center text-[14px] font-black leading-tight text-slate-900"
                       >
                         {{ b.word }}
-                      </div>
-
-                      <div
-                        v-if="b.smile"
-                        class="absolute left-1/2 top-[70%] -translate-x-1/2 text-[11px] font-semibold text-slate-700 animate-driftUp"
-                      >
-                        {{ t('soundpop.ui.softHint') }}
                       </div>
                     </div>
                   </button>
@@ -1338,22 +1311,5 @@ watch(
 }
 .animate-pop {
   animation: pop 220ms ease-out forwards;
-}
-
-@keyframes driftUp {
-  0% {
-    transform: translate(-50%, 0);
-    opacity: 0;
-  }
-  20% {
-    opacity: 1;
-  }
-  100% {
-    transform: translate(-50%, -10px);
-    opacity: 0;
-  }
-}
-.animate-driftUp {
-  animation: driftUp 420ms ease-out forwards;
 }
 </style>
