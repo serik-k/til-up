@@ -9,8 +9,8 @@ import {
   shallowRef,
   triggerRef,
   watch,
-} from 'vue';
-import { useI18n } from 'vue-i18n';
+} from "vue";
+import { useI18n } from "vue-i18n";
 import type {
   Bubble,
   BubbleRemoveReason,
@@ -18,8 +18,8 @@ import type {
   Level,
   Particle,
   Sound,
-} from '../types/soundPop';
-import { useMicLevel } from '../composables/useMicLevel';
+} from "../types/soundPop";
+import { useMicLevel } from "../composables/useMicLevel";
 
 const { t, locale } = useI18n();
 
@@ -32,31 +32,33 @@ const BUBBLE_SIZE = 80;
 const BUBBLE_R = BUBBLE_SIZE / 2;
 
 const settings = reactive({
-  mode: 'target' as GameMode,
-  targetSound: 'R' as Sound,
-  selectedSounds: ['R', 'L', 'SH'] as Sound[],
+  mode: "target" as GameMode,
+  targetSound: "R" as Sound,
+  selectedSounds: ["R", "L", "SH"] as Sound[],
   level: 1 as Level,
   roundSeconds: 45,
 });
 
-type GameState = 'idle' | 'running' | 'paused';
-const gameState = ref<GameState>('idle');
+type GameState = "idle" | "running" | "paused";
+const gameState = ref<GameState>("idle");
 
-const isRunning = computed(() => gameState.value === 'running');
-const isPaused = computed(() => gameState.value === 'paused');
-const isIdle = computed(() => gameState.value === 'idle');
+const isRunning = computed(() => gameState.value === "running");
+const isPaused = computed(() => gameState.value === "paused");
+const isIdle = computed(() => gameState.value === "idle");
 
 const timeLeft = ref(settings.roundSeconds);
 const score = ref(0);
-const rewardText = ref<string>('');
+const rewardText = ref<string>("");
 
 /** mic (step 1: level meter only) */
 const mic = useMicLevel();
 
-const micOn = computed(() => mic.state.value === 'listening');
-const micStarting = computed(() => mic.state.value === 'starting');
-const micUnsupported = computed(() => mic.state.value === 'unsupported');
-const micError = computed(() => mic.state.value === 'error');
+const micOn = computed(() => mic.state.value === "listening");
+const micStarting = computed(
+  () => mic.starting.value || mic.state.value === "starting",
+);
+const micUnsupported = computed(() => mic.state.value === "unsupported");
+const micError = computed(() => mic.state.value === "error");
 
 const micLevelPct = computed(() => {
   const v = Number(mic.level.value || 0);
@@ -74,15 +76,15 @@ function micErrorText(code: string) {
 }
 
 const micStatusText = computed(() => {
-  if (micUnsupported.value) return t('soundpop.mic.unsupported');
-  if (micStarting.value) return t('soundpop.mic.starting');
+  if (micUnsupported.value) return t("soundpop.mic.unsupported");
+  if (micStarting.value) return t("soundpop.mic.starting");
 
   if (micError.value) {
-    const code = String(mic.errorMessage.value || 'mic_error');
+    const code = String(mic.errorMessage.value || "mic_error");
     return micErrorText(code);
   }
 
-  return micOn.value ? `${micLevelPct.value}%` : t('soundpop.mic.noSound');
+  return micOn.value ? `${micLevelPct.value}%` : t("soundpop.mic.noSound");
 });
 
 /** entities */
@@ -131,23 +133,23 @@ function clamp(v: number, a: number, b: number) {
 
 /** ===== i18n helpers ===== */
 const speechLang = computed(() => {
-  const l = String(locale.value || '').toLowerCase();
-  if (l.startsWith('kk')) return 'kk-KZ';
-  if (l.startsWith('en')) return 'en-US';
-  return 'ru-RU';
+  const l = String(locale.value || "").toLowerCase();
+  if (l.startsWith("kk")) return "kk-KZ";
+  if (l.startsWith("en")) return "en-US";
+  return "ru-RU";
 });
 
-const localeKey = computed<'ru' | 'kk' | 'en'>(() => {
+const localeKey = computed<"ru" | "kk" | "en">(() => {
   const l = speechLang.value.toLowerCase();
-  if (l.startsWith('kk')) return 'kk';
-  if (l.startsWith('en')) return 'en';
-  return 'ru';
+  if (l.startsWith("kk")) return "kk";
+  if (l.startsWith("en")) return "en";
+  return "ru";
 });
 
-const SOUND_UI_LABEL: Record<'ru' | 'kk' | 'en', Record<Sound, string>> = {
-  ru: { R: 'Р', L: 'Л', SH: 'Ш' },
-  kk: { R: 'Р', L: 'Л', SH: 'Ш' },
-  en: { R: 'R', L: 'L', SH: 'SH' },
+const SOUND_UI_LABEL: Record<"ru" | "kk" | "en", Record<Sound, string>> = {
+  ru: { R: "Р", L: "Л", SH: "Ш" },
+  kk: { R: "Р", L: "Л", SH: "Ш" },
+  en: { R: "R", L: "L", SH: "SH" },
 };
 
 function soundLabel(s: Sound) {
@@ -155,21 +157,21 @@ function soundLabel(s: Sound) {
 }
 
 /** ===== words to spawn (short, child-friendly) ===== */
-const WORDS: Record<'ru' | 'kk' | 'en', Record<Sound, string[]>> = {
+const WORDS: Record<"ru" | "kk" | "en", Record<Sound, string[]>> = {
   ru: {
-    R: ['робот', 'ракета', 'рыцарь', 'радуга', 'ракетка'],
-    L: ['лев', 'лимонад', 'лего', 'лиса', 'лабиринт'],
-    SH: ['шахматы', 'шоколад', 'шлем', 'шарик', 'шутка'],
+    R: ["робот", "ракета", "рыцарь", "радуга", "ракетка"],
+    L: ["лев", "лимонад", "лего", "лиса", "лабиринт"],
+    SH: ["шахматы", "шоколад", "шлем", "шарик", "шутка"],
   },
   kk: {
-    R: ['робот', 'ракета', 'раушан', 'радио', 'рыцарь'],
-    L: ['лақ', 'лимонад', 'лего', 'лақтыр', 'лимон'],
-    SH: ['шар', 'шана', 'шоколад', 'шай', 'шопан'],
+    R: ["робот", "ракета", "раушан", "радио", "рыцарь"],
+    L: ["лақ", "лимонад", "лего", "лақтыр", "лимон"],
+    SH: ["шар", "шана", "шоколад", "шай", "шопан"],
   },
   en: {
-    R: ['robot', 'rocket', 'rainbow', 'raccoon', 'roller'],
-    L: ['lion', 'lego', 'lollipop', 'lamp', 'lizard'],
-    SH: ['shark', 'ship', 'shoe', 'sheep', 'shell'],
+    R: ["robot", "rocket", "rainbow", "raccoon", "roller"],
+    L: ["lion", "lego", "lollipop", "lamp", "lizard"],
+    SH: ["shark", "ship", "shoe", "sheep", "shell"],
   },
 };
 
@@ -184,17 +186,17 @@ const timeLeftCeil = computed(() => Math.ceil(timeLeft.value));
 
 const primaryActionText = computed(() =>
   isIdle.value
-    ? t('soundpop.actions.start')
+    ? t("soundpop.actions.start")
     : isRunning.value
-      ? t('soundpop.actions.pause')
-      : t('soundpop.actions.resume')
+      ? t("soundpop.actions.pause")
+      : t("soundpop.actions.resume"),
 );
 const primaryActionAria = computed(() =>
   isIdle.value
-    ? t('soundpop.aria.start')
+    ? t("soundpop.aria.start")
     : isRunning.value
-      ? t('soundpop.aria.pause')
-      : t('soundpop.aria.resume')
+      ? t("soundpop.aria.pause")
+      : t("soundpop.aria.resume"),
 );
 
 function onPrimaryActionClick() {
@@ -271,7 +273,7 @@ const bubblePool: Bubble[] = [];
 function getParticle(): Particle {
   return (
     particlePool.pop() ?? {
-      id: '',
+      id: "",
       x: 0,
       y: 0,
       vx: 0,
@@ -279,7 +281,7 @@ function getParticle(): Particle {
       life: 0,
       born: 0,
       alpha: 1,
-      style: '',
+      style: "",
     }
   );
 }
@@ -290,17 +292,17 @@ function recycleParticle(p: Particle) {
 function getBubble(): Bubble {
   return (
     bubblePool.pop() ?? {
-      id: '',
+      id: "",
       x: 0,
       y: 0,
       vy: 0,
-      letter: 'R',
-      word: '',
+      letter: "R",
+      word: "",
       alive: true,
       popped: false,
       removeReason: null,
       removeAt: null,
-      tf: '',
+      tf: "",
     }
   );
 }
@@ -390,7 +392,7 @@ function skipOnboarding() {
 
 function handleOnboardingKeydown(e: KeyboardEvent) {
   if (!onboardingOpen.value) return;
-  if (e.key !== 'Escape') return;
+  if (e.key !== "Escape") return;
   e.preventDefault();
   closeOnboarding();
 }
@@ -398,16 +400,18 @@ function handleOnboardingKeydown(e: KeyboardEvent) {
 watch(
   onboardingOpen,
   (open) => {
-    if (open) document.addEventListener('keydown', handleOnboardingKeydown);
-    else document.removeEventListener('keydown', handleOnboardingKeydown);
+    if (open) document.addEventListener("keydown", handleOnboardingKeydown);
+    else document.removeEventListener("keydown", handleOnboardingKeydown);
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 /** ===== gameplay spawn ===== */
 function spawnPool(): Sound[] {
-  if (settings.mode === 'target') return [settings.targetSound];
-  return settings.selectedSounds.length ? settings.selectedSounds : (['R', 'L', 'SH'] as Sound[]);
+  if (settings.mode === "target") return [settings.targetSound];
+  return settings.selectedSounds.length
+    ? settings.selectedSounds
+    : (["R", "L", "SH"] as Sound[]);
 }
 
 function pickSpawnItem(): { sound: Sound; word: string } {
@@ -430,7 +434,7 @@ function spawnBubble(m: number) {
   const { sound, word } = pickSpawnItem();
 
   const b = getBubble();
-  b.id = uid('b');
+  b.id = uid("b");
   b.x = Math.random();
   b.y = -BUBBLE_SIZE;
   b.vy = (70 + Math.random() * 40) * m;
@@ -450,7 +454,12 @@ function spawnBubble(m: number) {
   markDirtyB();
 }
 
-function removeBubble(b: Bubble, now: number, keepMs: number, reason: BubbleRemoveReason) {
+function removeBubble(
+  b: Bubble,
+  now: number,
+  keepMs: number,
+  reason: BubbleRemoveReason,
+) {
   if (b.popped) return;
 
   b.popped = true;
@@ -501,10 +510,12 @@ function sweepDeadInPlace(now: number) {
 }
 
 function clearAllEntitiesToPool() {
-  for (let i = 0; i < bubbles.value.length; i++) recycleBubble(bubbles.value[i]!);
+  for (let i = 0; i < bubbles.value.length; i++)
+    recycleBubble(bubbles.value[i]!);
   bubbles.value.length = 0;
 
-  for (let i = 0; i < particles.value.length; i++) recycleParticle(particles.value[i]!);
+  for (let i = 0; i < particles.value.length; i++)
+    recycleParticle(particles.value[i]!);
   particles.value.length = 0;
 
   aliveBubblesCount = 0;
@@ -524,7 +535,7 @@ function addParticles(clientX: number, clientY: number, now: number) {
     const sp = 80 + Math.random() * 160;
 
     const p = getParticle();
-    p.id = uid('p');
+    p.id = uid("p");
     p.x = pt.x;
     p.y = pt.y;
     p.vx = Math.cos(ang) * sp;
@@ -546,10 +557,10 @@ function popBubble(b: Bubble, clientX: number, clientY: number) {
   if (b.popped) return;
 
   const now = nowTs();
-  removeBubble(b, now, 220, 'hit');
+  removeBubble(b, now, 220, "hit");
 
   score.value += 1;
-  rewardText.value = '';
+  rewardText.value = "";
 
   addParticles(clientX, clientY, now);
 }
@@ -567,7 +578,7 @@ async function ensureSizeBeforeLoop() {
 }
 
 function resetRoundState() {
-  rewardText.value = '';
+  rewardText.value = "";
   score.value = 0;
 
   timeLeftMs = settings.roundSeconds * 1000;
@@ -588,7 +599,7 @@ async function startRound() {
   if (onboardingOpen.value) return;
 
   resetRoundState();
-  gameState.value = 'running';
+  gameState.value = "running";
 
   await ensureSizeBeforeLoop();
   frameTs = null;
@@ -597,7 +608,7 @@ async function startRound() {
 
 function pauseRound() {
   if (!isRunning.value) return;
-  gameState.value = 'paused';
+  gameState.value = "paused";
   frameTs = null;
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
@@ -609,7 +620,7 @@ function resumeRound() {
   if (!isPaused.value) return;
   if (onboardingOpen.value) return;
 
-  gameState.value = 'running';
+  gameState.value = "running";
   lastTs = 0;
   frameTs = null;
   rafId = requestAnimationFrame(loop);
@@ -618,7 +629,7 @@ function resumeRound() {
 function stopRound(showReward: boolean) {
   if (isIdle.value) return;
 
-  gameState.value = 'idle';
+  gameState.value = "idle";
   frameTs = null;
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
@@ -630,12 +641,12 @@ function stopRound(showReward: boolean) {
   if (showReward) {
     rewardText.value =
       score.value >= 8
-        ? t('soundpop.rewards.super')
+        ? t("soundpop.rewards.super")
         : score.value >= 4
-          ? t('soundpop.rewards.cool')
-          : t('soundpop.rewards.good');
+          ? t("soundpop.rewards.cool")
+          : t("soundpop.rewards.good");
   } else {
-    rewardText.value = '';
+    rewardText.value = "";
     score.value = 0;
 
     timeLeftMs = settings.roundSeconds * 1000;
@@ -694,7 +705,7 @@ function loop(ts: number) {
     b.y += b.vy * dtMotion;
 
     if (b.y > height.value + BUBBLE_SIZE) {
-      removeBubble(b, now, 50, 'miss');
+      removeBubble(b, now, 50, "miss");
       touchedB = true;
     } else {
       updateBubbleTransform(b);
@@ -726,7 +737,11 @@ function loop(ts: number) {
   }
 
   // sweep
-  if (ts % 120 < 16 || bubbles.value.length > 64 || particles.value.length > 512) {
+  if (
+    ts % 120 < 16 ||
+    bubbles.value.length > 64 ||
+    particles.value.length > 512
+  ) {
     sweepDeadInPlace(now);
   }
 
@@ -750,7 +765,7 @@ function onBubbleKeydown(b: Bubble, e: KeyboardEvent) {
   if (interactionsLocked.value) return;
   if (b.popped) return;
 
-  if (e.key !== 'Enter' && e.key !== ' ') return;
+  if (e.key !== "Enter" && e.key !== " ") return;
 
   e.preventDefault();
   e.stopPropagation();
@@ -765,7 +780,7 @@ function toggleSound(sound: Sound) {
   set.has(sound) ? set.delete(sound) : set.add(sound);
 
   const next = Array.from(set) as Sound[];
-  settings.selectedSounds = next.length ? next : (['R', 'L', 'SH'] as Sound[]);
+  settings.selectedSounds = next.length ? next : (["R", "L", "SH"] as Sound[]);
 }
 function setTarget(sound: Sound) {
   settings.targetSound = sound;
@@ -793,7 +808,7 @@ onMounted(async () => {
   await nextTick();
   attachResizeObservers();
 
-  document.addEventListener('visibilitychange', handleVisibilityChange);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
 });
 
 onUnmounted(() => {
@@ -812,8 +827,8 @@ onUnmounted(() => {
     rafId = null;
   }
 
-  document.removeEventListener('keydown', handleOnboardingKeydown);
-  document.removeEventListener('visibilitychange', handleVisibilityChange);
+  document.removeEventListener("keydown", handleOnboardingKeydown);
+  document.removeEventListener("visibilitychange", handleVisibilityChange);
 
   clearAllEntitiesToPool();
 });
@@ -826,7 +841,7 @@ watch(
       timeLeft.value = settings.roundSeconds;
       lastUiTimeUpdateTs = 0;
     }
-  }
+  },
 );
 </script>
 
@@ -848,8 +863,12 @@ watch(
           ></div>
         </div>
 
-        <header class="relative border-b border-sky-200/50 px-4 py-5 sm:px-6 sm:py-6">
-          <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <header
+          class="relative border-b border-sky-200/50 px-4 py-5 sm:px-6 sm:py-6"
+        >
+          <div
+            class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
+          >
             <div class="min-w-0">
               <div class="flex items-center gap-2">
                 <span
@@ -858,16 +877,18 @@ watch(
                 >
                   <span class="h-2 w-2 rounded-full bg-sky-400"></span>
                 </span>
-                <h2 class="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-                  {{ t('soundpop.title') }}
+                <h2
+                  class="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl"
+                >
+                  {{ t("soundpop.title") }}
                 </h2>
               </div>
 
               <p class="mt-2 max-w-[72ch] text-xs text-slate-600 sm:text-sm">
-                {{ t('soundpop.subtitle') }}
+                {{ t("soundpop.subtitle") }}
               </p>
               <p class="mt-2 max-w-[72ch] text-xs text-slate-600 sm:text-sm">
-                {{ t('soundpop.hintRound') }}
+                {{ t("soundpop.hintRound") }}
               </p>
             </div>
 
@@ -875,13 +896,16 @@ watch(
               <div
                 class="flex min-h-[52px] items-center gap-3 rounded-2xl border border-sky-200/60 bg-white/70 px-3 py-2 shadow-sm backdrop-blur"
               >
-                <span class="h-2 w-2 rounded-full bg-sky-400" aria-hidden="true"></span>
+                <span
+                  class="h-2 w-2 rounded-full bg-sky-400"
+                  aria-hidden="true"
+                ></span>
                 <div class="min-w-0">
                   <p class="text-[11px] font-semibold text-slate-500">
-                    {{ t('soundpop.ui.time') }}
+                    {{ t("soundpop.ui.time") }}
                   </p>
                   <p class="text-sm font-extrabold text-slate-900">
-                    {{ timeLeftCeil }}{{ t('soundpop.ui.seconds') }}
+                    {{ timeLeftCeil }}{{ t("soundpop.ui.seconds") }}
                   </p>
                 </div>
               </div>
@@ -889,12 +913,17 @@ watch(
               <div
                 class="flex min-h-[52px] items-center gap-3 rounded-2xl border border-pink-200/60 bg-white/70 px-3 py-2 shadow-sm backdrop-blur"
               >
-                <span class="h-2 w-2 rounded-full bg-pink-400" aria-hidden="true"></span>
+                <span
+                  class="h-2 w-2 rounded-full bg-pink-400"
+                  aria-hidden="true"
+                ></span>
                 <div class="min-w-0">
                   <p class="text-[11px] font-semibold text-slate-500">
-                    {{ t('soundpop.ui.score') }}
+                    {{ t("soundpop.ui.score") }}
                   </p>
-                  <p class="text-sm font-extrabold text-slate-900">{{ score }}</p>
+                  <p class="text-sm font-extrabold text-slate-900">
+                    {{ score }}
+                  </p>
                 </div>
               </div>
             </div>
@@ -913,8 +942,16 @@ watch(
                 class="pointer-events-none absolute -inset-24 opacity-0 blur-2xl transition group-hover:opacity-100"
                 style="
                   background:
-                    radial-gradient(circle at 30% 30%, rgba(56, 189, 248, 0.55), transparent 55%),
-                    radial-gradient(circle at 70% 40%, rgba(244, 114, 182, 0.35), transparent 60%);
+                    radial-gradient(
+                      circle at 30% 30%,
+                      rgba(56, 189, 248, 0.55),
+                      transparent 55%
+                    ),
+                    radial-gradient(
+                      circle at 70% 40%,
+                      rgba(244, 114, 182, 0.35),
+                      transparent 60%
+                    );
                 "
               ></span>
               <span class="relative">{{ primaryActionText }}</span>
@@ -927,7 +964,7 @@ watch(
               :disabled="isIdle"
               :aria-label="t('soundpop.aria.stop')"
             >
-              {{ t('soundpop.actions.stop') }}
+              {{ t("soundpop.actions.stop") }}
             </button>
 
             <button
@@ -936,7 +973,7 @@ watch(
               @click="openOnboardingIfNeeded"
               :aria-label="t('soundpop.aria.tips')"
             >
-              {{ t('soundpop.actions.tips') }}
+              {{ t("soundpop.actions.tips") }}
             </button>
           </div>
 
@@ -954,7 +991,9 @@ watch(
           </div>
         </header>
 
-        <div class="relative grid grid-cols-1 gap-0 lg:grid-cols-12 lg:items-stretch">
+        <div
+          class="relative grid grid-cols-1 gap-0 lg:grid-cols-12 lg:items-stretch"
+        >
           <div class="lg:col-span-8 p-4 sm:p-6 flex flex-col h-full">
             <div class="flex-1">
               <div
@@ -964,7 +1003,10 @@ watch(
                 role="region"
                 :aria-label="t('soundpop.aria.field')"
               >
-                <div aria-hidden="true" class="pointer-events-none absolute inset-0">
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0"
+                >
                   <div
                     class="absolute inset-0"
                     style="
@@ -1045,19 +1087,26 @@ watch(
                   ></div>
                 </div>
 
-                <div v-if="isIdle" class="absolute inset-0 flex items-center justify-center p-4">
+                <div
+                  v-if="isIdle"
+                  class="absolute inset-0 flex items-center justify-center p-4"
+                >
                   <div
                     class="rounded-3xl border border-sky-200/70 bg-white/75 px-6 py-5 shadow-sm backdrop-blur"
                   >
                     <p class="text-sm font-extrabold text-slate-900">
-                      {{ t('soundpop.ui.readyTitle') }}
+                      {{ t("soundpop.ui.readyTitle") }}
                     </p>
-                    <p class="mt-1 text-xs text-slate-600">{{ t('soundpop.ui.readyText') }}</p>
+                    <p class="mt-1 text-xs text-slate-600">
+                      {{ t("soundpop.ui.readyText") }}
+                    </p>
                   </div>
                 </div>
 
                 <div v-if="onboardingStep >= 0" class="absolute inset-0 z-20">
-                  <div class="absolute inset-0 bg-slate-900/30 backdrop-blur-sm"></div>
+                  <div
+                    class="absolute inset-0 bg-slate-900/30 backdrop-blur-sm"
+                  ></div>
 
                   <div
                     ref="onboardingModalRef"
@@ -1070,9 +1119,11 @@ watch(
                     <div class="flex items-start justify-between gap-3">
                       <div>
                         <p class="text-sm font-extrabold text-slate-900">
-                          {{ t('soundpop.tips.title') }}
+                          {{ t("soundpop.tips.title") }}
                         </p>
-                        <p class="mt-1 text-xs text-slate-600">{{ t('soundpop.tips.subtitle') }}</p>
+                        <p class="mt-1 text-xs text-slate-600">
+                          {{ t("soundpop.tips.subtitle") }}
+                        </p>
                       </div>
 
                       <button
@@ -1080,33 +1131,38 @@ watch(
                         class="inline-flex min-h-[40px] items-center justify-center rounded-2xl border border-pink-200/70 bg-white/70 px-3 py-2 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98]"
                         @click="skipOnboarding"
                       >
-                        {{ t('soundpop.tips.skip') }}
+                        {{ t("soundpop.tips.skip") }}
                       </button>
                     </div>
 
                     <div
                       class="mt-4 rounded-3xl border border-sky-200/70 bg-white/70 p-4 backdrop-blur"
                     >
-                      <p v-if="onboardingStep === 0" class="text-sm font-semibold text-slate-900">
-                        {{ t('soundpop.tips.step1') }}
+                      <p
+                        v-if="onboardingStep === 0"
+                        class="text-sm font-semibold text-slate-900"
+                      >
+                        {{ t("soundpop.tips.step1") }}
                       </p>
                       <p
                         v-else-if="onboardingStep === 1"
                         class="text-sm font-semibold text-slate-900"
                       >
-                        {{ t('soundpop.tips.step2') }}
+                        {{ t("soundpop.tips.step2") }}
                       </p>
                       <p v-else class="text-sm font-semibold text-slate-900">
-                        {{ t('soundpop.tips.step3') }}
+                        {{ t("soundpop.tips.step3") }}
                       </p>
                     </div>
 
-                    <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
+                    <div
+                      class="mt-5 flex flex-wrap items-center justify-between gap-3"
+                    >
                       <div
                         class="rounded-2xl border border-pink-200/70 bg-white/70 px-4 py-3 shadow-sm backdrop-blur"
                       >
                         <p class="text-xs font-semibold text-slate-600">
-                          {{ t('soundpop.tips.step') }}
+                          {{ t("soundpop.tips.step") }}
                         </p>
                         <p class="text-sm font-extrabold text-slate-900">
                           {{ onboardingStep + 1 }}/3
@@ -1135,11 +1191,15 @@ watch(
                               );
                           "
                         ></span>
-                        <span class="relative">{{ t('soundpop.tips.next') }}</span>
+                        <span class="relative">{{
+                          t("soundpop.tips.next")
+                        }}</span>
                       </button>
                     </div>
 
-                    <p class="mt-3 text-[11px] text-slate-500">{{ t('soundpop.tips.esc') }}</p>
+                    <p class="mt-3 text-[11px] text-slate-500">
+                      {{ t("soundpop.tips.esc") }}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1151,7 +1211,7 @@ watch(
           >
             <div class="flex items-center justify-between">
               <p class="text-sm font-extrabold text-slate-900">
-                {{ t('soundpop.settings.title') }}
+                {{ t("soundpop.settings.title") }}
               </p>
             </div>
 
@@ -1163,12 +1223,12 @@ watch(
                 <summary
                   class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
                 >
-                  {{ t('soundpop.mic.title') }}
+                  {{ t("soundpop.mic.title") }}
                 </summary>
 
                 <div class="px-4 pb-4">
                   <p class="text-[12px] text-slate-500">
-                    {{ t('soundpop.mic.desc') }}
+                    {{ t("soundpop.mic.desc") }}
                   </p>
 
                   <div class="mt-3 flex flex-wrap gap-2">
@@ -1176,11 +1236,11 @@ watch(
                       v-if="!micOn"
                       type="button"
                       class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98] disabled:opacity-60"
-                      @click="mic.start()"
-                      :disabled="micUnsupported"
+                      @click="void mic.start()"
+                      :disabled="micUnsupported || micStarting"
                       :aria-label="t('soundpop.mic.enable')"
                     >
-                      {{ t('soundpop.mic.enable') }}
+                      {{ t("soundpop.mic.enable") }}
                     </button>
 
                     <button
@@ -1190,30 +1250,40 @@ watch(
                       @click="mic.stop()"
                       :aria-label="t('soundpop.mic.disable')"
                     >
-                      {{ t('soundpop.mic.disable') }}
+                      {{ t("soundpop.mic.disable") }}
                     </button>
 
                     <div
                       class="flex min-h-[44px] flex-1 items-center gap-3 rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 shadow-sm backdrop-blur"
                     >
-                      <div class="h-2 flex-1 overflow-hidden rounded-full bg-slate-200/70">
+                      <div
+                        class="h-2 flex-1 overflow-hidden rounded-full bg-slate-200/70"
+                      >
                         <div
                           class="h-full rounded-full bg-sky-400 transition-[width] duration-75"
                           :style="micBarStyle"
                         ></div>
                       </div>
 
-                      <p class="text-[12px] font-extrabold text-slate-900 tabular-nums">
+                      <p
+                        class="text-[12px] font-extrabold text-slate-900 tabular-nums"
+                      >
                         {{ micStatusText }}
                       </p>
                     </div>
                   </div>
 
-                  <p v-if="micUnsupported" class="mt-2 text-[12px] text-slate-500">
-                    {{ t('soundpop.mic.unsupported') }}
+                  <p
+                    v-if="micUnsupported"
+                    class="mt-2 text-[12px] text-slate-500"
+                  >
+                    {{ t("soundpop.mic.unsupported") }}
                   </p>
 
-                  <p v-else-if="micError" class="mt-2 text-[12px] text-pink-700">
+                  <p
+                    v-else-if="micError"
+                    class="mt-2 text-[12px] text-pink-700"
+                  >
                     {{ micStatusText }}
                   </p>
                 </div>
@@ -1226,7 +1296,7 @@ watch(
                 <summary
                   class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
                 >
-                  {{ t('soundpop.mode.title') }}
+                  {{ t("soundpop.mode.title") }}
                 </summary>
 
                 <div class="px-4 pb-4">
@@ -1243,7 +1313,7 @@ watch(
                       @click="setMode('target')"
                       :disabled="!isIdle"
                     >
-                      {{ t('soundpop.mode.target') }}
+                      {{ t("soundpop.mode.target") }}
                     </button>
 
                     <button
@@ -1258,7 +1328,7 @@ watch(
                       @click="setMode('mixed')"
                       :disabled="!isIdle"
                     >
-                      {{ t('soundpop.mode.mixed') }}
+                      {{ t("soundpop.mode.mixed") }}
                     </button>
                   </div>
                 </div>
@@ -1271,13 +1341,13 @@ watch(
                 <summary
                   class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
                 >
-                  {{ t('soundpop.words.title') }}
+                  {{ t("soundpop.words.title") }}
                 </summary>
 
                 <div class="space-y-3 px-4 pb-4">
                   <div>
                     <p class="text-xs font-semibold text-slate-600">
-                      {{ t('soundpop.words.target') }}
+                      {{ t("soundpop.words.target") }}
                     </p>
                     <div class="mt-2 grid grid-cols-3 gap-2">
                       <button
@@ -1301,7 +1371,7 @@ watch(
 
                   <div>
                     <p class="text-xs font-semibold text-slate-600">
-                      {{ t('soundpop.words.multi') }}
+                      {{ t("soundpop.words.multi") }}
                     </p>
                     <div class="mt-2 grid grid-cols-3 gap-2">
                       <button
@@ -1331,13 +1401,13 @@ watch(
                 <summary
                   class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
                 >
-                  {{ t('soundpop.difficulty.title') }}
+                  {{ t("soundpop.difficulty.title") }}
                 </summary>
 
                 <div class="space-y-3 px-4 pb-4">
                   <div>
                     <p class="text-xs font-semibold text-slate-600">
-                      {{ t('soundpop.difficulty.level') }}
+                      {{ t("soundpop.difficulty.level") }}
                     </p>
                     <div class="mt-2 grid grid-cols-3 gap-2">
                       <button
@@ -1362,10 +1432,11 @@ watch(
                   <div>
                     <div class="flex items-center justify-between">
                       <p class="text-xs font-semibold text-slate-600">
-                        {{ t('soundpop.difficulty.round') }}
+                        {{ t("soundpop.difficulty.round") }}
                       </p>
                       <p class="text-xs font-extrabold text-slate-900">
-                        {{ settings.roundSeconds }}{{ t('soundpop.ui.seconds') }}
+                        {{ settings.roundSeconds
+                        }}{{ t("soundpop.ui.seconds") }}
                       </p>
                     </div>
 
@@ -1376,14 +1447,18 @@ watch(
                       max="60"
                       step="1"
                       :value="settings.roundSeconds"
-                      @input="setRoundSeconds(Number(($event.target as HTMLInputElement).value))"
+                      @input="
+                        setRoundSeconds(
+                          Number(($event.target as HTMLInputElement).value),
+                        )
+                      "
                       :disabled="!isIdle"
                       :aria-label="t('soundpop.aria.roundLength')"
                     />
                   </div>
 
                   <p class="text-[12px] text-slate-500">
-                    {{ t('soundpop.difficulty.note') }}
+                    {{ t("soundpop.difficulty.note") }}
                   </p>
                 </div>
               </details>

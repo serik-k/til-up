@@ -121,7 +121,20 @@
       "recognized": "Recognized",
       "noWord": "—",
       "noSound": "♬",
-      "unsupported": "Microphone/speech recognition is not supported in this browser"
+      "starting": "Enabling…",
+      "unsupported": "Microphone/speech recognition is not supported in this browser",
+      "errors": {
+        "permission_denied": "Microphone access is blocked. Allow it in your browser settings.",
+        "device_not_found": "No microphone found. Connect a device and try again.",
+        "device_busy": "The microphone is busy in another app or tab.",
+        "aborted": "The microphone request was aborted.",
+        "security_error": "The browser blocked microphone access for security reasons.",
+        "constraints_not_satisfied": "Could not apply microphone settings. Try a different microphone.",
+        "insecure_context": "A secure context is required: open the site over HTTPS or on localhost.",
+        "audio_context_suspended": "Audio context is suspended by the browser. Click “Enable” again or check autoplay/audio settings.",
+        "unsupported": "Microphone features are not supported in this browser.",
+        "mic_error": "Could not enable the microphone. Please try again."
+      }
     },
     "mode": {
       "title": "Mode",
