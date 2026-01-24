@@ -123,17 +123,26 @@
       "noSound": "♬",
       "starting": "Enabling…",
       "unsupported": "Microphone/speech recognition is not supported in this browser",
+
+      "state": {
+        "idle": "Mic: idle",
+        "starting": "Mic: starting…",
+        "listening": "Mic: listening",
+        "error": "Mic: error",
+        "unsupported": "Mic: unsupported"
+      },
+
       "errors": {
         "permission_denied": "Microphone access is blocked. Allow it in your browser settings.",
-        "device_not_found": "No microphone found. Connect a device and try again.",
-        "device_busy": "The microphone is busy in another app or tab.",
-        "aborted": "The microphone request was aborted.",
-        "security_error": "The browser blocked microphone access for security reasons.",
-        "constraints_not_satisfied": "Could not apply microphone settings. Try a different microphone.",
-        "insecure_context": "A secure context is required: open the site over HTTPS or on localhost.",
-        "audio_context_suspended": "Audio context is suspended by the browser. Click “Enable” again or check autoplay/audio settings.",
-        "unsupported": "Microphone features are not supported in this browser.",
-        "mic_error": "Could not enable the microphone. Please try again."
+        "audio_capture": "Could not capture audio from the microphone. Make sure a mic is connected and not used by another tab/app.",
+        "no_speech": "No speech detected. Try speaking a bit louder and shorter.",
+        "network": "Network or speech service error. Check your connection and try again.",
+        "aborted": "Speech recognition was aborted.",
+        "bad_grammar": "Could not process the recognition request (bad grammar). Please try again.",
+        "language_not_supported": "The selected language is not supported in this browser.",
+        "invalid_state": "Recognition is already running or in an invalid state. Disable and enable again.",
+        "unsupported": "Speech recognition is not supported in this browser.",
+        "speech_error": "Could not start speech recognition. Please try again."
       }
     },
     "mode": {

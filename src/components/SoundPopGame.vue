@@ -19,12 +19,12 @@ import type {
   Particle,
   Sound,
 } from "../types/soundPop";
-import { useMicLevel } from "../composables/useMicLevel";
 import { useSpeechRecognition } from "../composables/useSpeechRecognition";
 
+/** ===== i18n ===== */
 const { t, locale } = useI18n();
 
-/** layout */
+/** ===== layout ===== */
 const containerRef = ref<HTMLElement | null>(null);
 const width = ref(0);
 const height = ref(0);
@@ -32,10 +32,12 @@ const height = ref(0);
 const BUBBLE_SIZE = 80;
 const BUBBLE_R = BUBBLE_SIZE / 2;
 
+const DEFAULT_SOUNDS = ["R", "L", "SH"] as const;
+
 const settings = reactive({
   mode: "target" as GameMode,
   targetSound: "R" as Sound,
-  selectedSounds: ["R", "L", "SH"] as Sound[],
+  selectedSounds: [...DEFAULT_SOUNDS] as Sound[],
   level: 1 as Level,
   roundSeconds: 45,
 });
@@ -76,44 +78,7 @@ function soundLabel(s: Sound) {
   return SOUND_UI_LABEL[localeKey.value][s] ?? s;
 }
 
-/** mic (step 1: level meter only) */
-const mic = useMicLevel();
-
-const micOn = computed(() => mic.state.value === "listening");
-const micStarting = computed(
-  () => mic.starting.value || mic.state.value === "starting",
-);
-const micUnsupported = computed(() => mic.state.value === "unsupported");
-const micError = computed(() => mic.state.value === "error");
-
-const micLevelPct = computed(() => {
-  const v = Number(mic.level.value || 0);
-  return Math.max(0, Math.min(100, Math.round(v * 100)));
-});
-
-const micBarStyle = computed(() => ({
-  width: `${micLevelPct.value}%`,
-}));
-
-function micErrorText(code: string) {
-  const key = `soundpop.mic.errors.${code}`;
-  const translated = t(key);
-  return translated === key ? code : translated;
-}
-
-const micStatusText = computed(() => {
-  if (micUnsupported.value) return t("soundpop.mic.unsupported");
-  if (micStarting.value) return t("soundpop.mic.starting");
-
-  if (micError.value) {
-    const code = String(mic.errorMessage.value || "mic_error");
-    return micErrorText(code);
-  }
-
-  return micOn.value ? `${micLevelPct.value}%` : t("soundpop.mic.noSound");
-});
-
-/** entities */
+/** ===== entities ===== */
 const bubbles = shallowRef<Bubble[]>([]);
 const particles = shallowRef<Particle[]>([]);
 
@@ -148,37 +113,47 @@ function commitFrame() {
 }
 
 let frameTs: number | null = null;
-
 function nowTs() {
   return frameTs ?? performance.now();
 }
-
 function clamp(v: number, a: number, b: number) {
   return Math.max(a, Math.min(b, v));
 }
 
-/** voice recognition (Web Speech API) */
+/** ===== voice recognition (Web Speech API) ===== */
 const speech = useSpeechRecognition({
   lang: speechLang,
   autoRestart: true,
   continuous: true,
   interimResults: true,
   maxAlternatives: 1,
-  onFinal: (text) => {
-    handleSpeechText(text, true);
-  },
-  onInterim: (text) => {
-    handleSpeechText(text, false);
-  },
+  onFinal: (text) => handleSpeechText(text, true),
+  onInterim: (text) => handleSpeechText(text, false),
 });
 
+const speechStatusText = computed(() => {
+  const st = String(speech.state.value || "idle");
+  return t(`soundpop.mic.state.${st}`);
+});
+
+const speechErrorText = computed(() => {
+  const code = String(speech.errorMessage.value || "").trim();
+  if (!code) return "";
+
+  const key = `soundpop.mic.errors.${code}`;
+  const fallback = t("soundpop.mic.errors.speech_error");
+  const msg = t(key) as unknown as string;
+
+  if (!msg || msg === key) return fallback || code;
+  return msg;
+});
+
+/** ===== speech pop utils ===== */
 function normalizeMatch(s: string): string {
   const v = String(s || "")
     .toLowerCase()
     .trim()
     .replace(/ё/g, "е");
-
-  // латиница + кириллица + казахские буквы
   return v.replace(/[^a-zа-яәғқңөұүһі]+/giu, "");
 }
 
@@ -195,40 +170,19 @@ function extractTokensFromTranscript(text: string): string[] {
   return out;
 }
 
-function pickBestAliveBubbleByNormWord(norm: string): Bubble | null {
-  // Если одинаковые слова — лопаем тот, что ближе к низу (больше y)
-  let best: Bubble | null = null;
-  let bestY = -Infinity;
+/** ===== speech pop tuning ===== */
+const INTERIM_STABLE_HITS = 1;
+const INTERIM_COOLDOWN_MS = 70;
+const FINAL_SUPPRESS_MS = 250;
 
-  for (let i = 0; i < bubbles.value.length; i++) {
-    const b = bubbles.value[i]!;
-    if (!b.alive) continue;
-    if (b.popped) continue;
-
-    const bw = normalizeMatch(b.word);
-    if (bw !== norm) continue;
-
-    if (b.y > bestY) {
-      bestY = b.y;
-      best = b;
-    }
-  }
-
-  return best;
-}
-
-/** ===== Speech pop tuning ===== */
-const INTERIM_STABLE_HITS = 1; // было 2 — теперь лопаем быстрее
-const INTERIM_COOLDOWN_MS = 70; // было 140 — теперь чаще
-const FINAL_SUPPRESS_MS = 250; // было 450 — финал меньше душим
-
-const MAX_POP_PER_TOKEN = MAX_BUBBLES; // как было
-const MAX_POP_PER_PHRASE = MAX_BUBBLES; // как было (можно 12)
+const MAX_POP_PER_TOKEN = MAX_BUBBLES;
+const MAX_POP_PER_PHRASE = MAX_BUBBLES;
 
 let lastInterimKey = "";
 let lastInterimCount = 0;
 
 const lastTokenFireAt = new Map<string, number>();
+const LAST_TOKEN_FIRE_CAP = 220;
 
 function nowPerf() {
   return performance.now();
@@ -236,22 +190,42 @@ function nowPerf() {
 
 function canAttemptToken(token: string, isFinal: boolean, now: number) {
   const prev = lastTokenFireAt.get(token) ?? 0;
-
   if (isFinal) {
     if (now - prev < FINAL_SUPPRESS_MS) return false;
   } else {
     if (now - prev < INTERIM_COOLDOWN_MS) return false;
   }
-
   return true;
 }
 
 function markTokenFired(token: string, now: number) {
   lastTokenFireAt.set(token, now);
+  if (lastTokenFireAt.size > LAST_TOKEN_FIRE_CAP) {
+    lastTokenFireAt.clear();
+  }
+}
+
+/** ===== layout cache (perf: avoid frequent getBoundingClientRect) ===== */
+let layoutRect: DOMRect | null = null;
+let layoutSafeW = BUBBLE_SIZE;
+let layoutCacheTs = 0;
+
+function refreshLayoutCache(force = false) {
+  const el = containerRef.value;
+  if (!el) return;
+
+  const now = performance.now();
+  if (!force && now - layoutCacheTs < 120) return;
+
+  const rect = el.getBoundingClientRect();
+  layoutRect = rect;
+  layoutSafeW = width.value || rect.width || BUBBLE_SIZE;
+  layoutCacheTs = now;
 }
 
 function bubbleClientCenterFast(b: Bubble, rect: DOMRect, safeW: number) {
-  const px = b.x * (safeW - BUBBLE_SIZE) + BUBBLE_R;
+  const maxX = Math.max(0, safeW - BUBBLE_SIZE);
+  const px = b.x * maxX + BUBBLE_R;
   const py = b.y + BUBBLE_R;
   return { clientX: rect.left + px, clientY: rect.top + py };
 }
@@ -265,22 +239,20 @@ function popAllMatchingWordWithLayout(
   if (!isRunning.value) return 0;
   if (interactionsLocked.value) return 0;
 
+  const limit = Math.min(maxCount, MAX_POP_PER_TOKEN);
+  if (limit <= 0) return 0;
+
   const matches: Bubble[] = [];
   for (let i = 0; i < bubbles.value.length; i++) {
     const b = bubbles.value[i]!;
     if (!b.alive) continue;
     if (b.popped) continue;
-
-    const bw = normalizeMatch(b.word);
-    if (bw === normWord) matches.push(b);
+    if (normalizeMatch(b.word) === normWord) matches.push(b);
   }
 
   if (!matches.length) return 0;
 
-  // снизу вверх
   matches.sort((a, b) => b.y - a.y);
-
-  const limit = Math.max(1, Math.min(maxCount, MAX_POP_PER_TOKEN));
 
   let popped = 0;
   for (let i = 0; i < matches.length && popped < limit; i++) {
@@ -302,11 +274,9 @@ function handleSpeechText(text: string, isFinal: boolean) {
 
   const now = nowPerf();
 
-  // "главное" слово — последнее
   const lastToken = tokens[tokens.length - 1]!;
   if (!lastToken) return;
 
-  // стабилизация interim (ускоряет и защищает от дребезга)
   if (!isFinal) {
     if (lastToken === lastInterimKey) lastInterimCount += 1;
     else {
@@ -316,37 +286,31 @@ function handleSpeechText(text: string, isFinal: boolean) {
     if (lastInterimCount < INTERIM_STABLE_HITS) return;
   }
 
-  const el = containerRef.value;
-  if (!el) return;
+  refreshLayoutCache(false);
+  const rect = layoutRect;
+  if (!rect) return;
+  const safeW = layoutSafeW;
 
-  const rect = el.getBoundingClientRect();
-  const safeW = width.value || rect.width || BUBBLE_SIZE;
-
-  // helper: пробуем токен, cooldown ставим ТОЛЬКО если реально лопнули
   const tryPopToken = (token: string, remaining: number) => {
     if (!token) return { popped: 0, remaining };
+    if (remaining <= 0) return { popped: 0, remaining };
     if (!canAttemptToken(token, isFinal, now)) return { popped: 0, remaining };
 
     const popped = popAllMatchingWordWithLayout(token, rect, safeW, remaining);
     if (popped > 0) {
       markTokenFired(token, now);
-
-      // ускорение: чтобы следующее слово не ждало "стабильности" из прошлого
       lastInterimKey = "";
       lastInterimCount = 0;
-
       return { popped, remaining: remaining - popped };
     }
 
     return { popped: 0, remaining };
   };
 
-  // target: лопаем по одному "главному" слову, но если не нашли — fallback по токенам
   if (settings.mode === "target") {
     let r = tryPopToken(lastToken, MAX_BUBBLES);
     if (r.popped > 0) return;
 
-    // fallback: пробуем остальные слова справа налево, пока не найдём совпадение
     for (let i = tokens.length - 1; i >= 0; i--) {
       const tkn = tokens[i]!;
       r = tryPopToken(tkn, MAX_BUBBLES);
@@ -355,7 +319,6 @@ function handleSpeechText(text: string, isFinal: boolean) {
     return;
   }
 
-  // mixed: лопаем ВСЕ уникальные слова из фразы (справа налево) в пределах MAX_POP_PER_PHRASE
   let remaining = MAX_POP_PER_PHRASE;
   const seen = new Set<string>();
 
@@ -372,16 +335,16 @@ function handleSpeechText(text: string, isFinal: boolean) {
   }
 }
 
-/** ===== words to spawn (short, child-friendly) ===== */
+/** ===== words ===== */
 const WORDS: Record<"ru" | "kk" | "en", Record<Sound, string[]>> = {
   ru: {
-    R: ["робот", "ракета", "рыцарь", "радуга", "рама"],
-    L: ["лев", "лимонад", "лего", "лиса", "лабиринт"],
+    R: ["робот", "ракета", "рыцарь", "радуга", "радар"],
+    L: ["лев", "лимонад", "луна", "лиса", "лабиринт"],
     SH: ["шахматы", "шоколад", "шлем", "шарик", "шутка"],
   },
   kk: {
     R: ["робот", "ракета", "раушан", "радио", "рыцарь"],
-    L: ["лақ", "лимонад", "лего", "лақтыр", "лимон"],
+    L: ["лақ", "лимонад", "луна", "лимон", "локатор"],
     SH: ["шар", "шана", "шоколад", "шай", "шопан"],
   },
   en: {
@@ -428,23 +391,27 @@ function uid(prefix: string) {
   return `${prefix}_${idSeq}`;
 }
 
-/** ===== resize (batched) ===== */
+/** ===== resize (batched + fallback) ===== */
 let ro: ResizeObserver | null = null;
 let roRaf: number | null = null;
 let pendingW = 0;
 let pendingH = 0;
 
-function updateBubbleTransform(b: Bubble) {
-  const safeW = width.value > 0 ? width.value : BUBBLE_SIZE;
-  const left = (b.x * (safeW - BUBBLE_SIZE) + 0.5) | 0;
+let winResizeHandler: (() => void) | null = null;
+
+function updateBubbleTransformWithW(b: Bubble, safeW: number) {
+  const maxX = Math.max(0, safeW - BUBBLE_SIZE);
+  const left = (b.x * maxX + 0.5) | 0;
   const top = (b.y + 0.5) | 0;
   b.tf = `transform: translate3d(${left}px, ${top}px, 0);`;
 }
 
 function updateAllBubbleTransforms() {
   if (!bubbles.value.length) return;
+  const safeW = width.value > 0 ? width.value : BUBBLE_SIZE;
+
   for (let i = 0; i < bubbles.value.length; i++) {
-    updateBubbleTransform(bubbles.value[i]!);
+    updateBubbleTransformWithW(bubbles.value[i]!, safeW);
   }
   markDirtyB();
 
@@ -458,6 +425,8 @@ function flushSize() {
   width.value = pendingW;
   height.value = pendingH;
   roRaf = null;
+
+  refreshLayoutCache(true);
   updateAllBubbleTransforms();
 }
 
@@ -465,21 +434,32 @@ function attachResizeObservers() {
   const el = containerRef.value;
   if (!el) return;
 
-  ro = new ResizeObserver((entries) => {
-    const entry = entries[0];
-    if (!entry) return;
-    const cr = entry.contentRect;
-    pendingW = cr.width;
-    pendingH = cr.height;
-    if (roRaf === null) roRaf = requestAnimationFrame(flushSize);
-  });
-
-  ro.observe(el);
-
   const r = el.getBoundingClientRect();
   pendingW = r.width;
   pendingH = r.height;
   flushSize();
+
+  if (typeof ResizeObserver !== "undefined") {
+    ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const cr = entry.contentRect;
+      pendingW = cr.width;
+      pendingH = cr.height;
+      if (roRaf === null) roRaf = requestAnimationFrame(flushSize);
+    });
+
+    ro.observe(el);
+    return;
+  }
+
+  winResizeHandler = () => {
+    const rr = el.getBoundingClientRect();
+    pendingW = rr.width;
+    pendingH = rr.height;
+    flushSize();
+  };
+  window.addEventListener("resize", winResizeHandler, { passive: true });
 }
 
 /** ===== pools ===== */
@@ -542,7 +522,8 @@ function bubbleClientCenter(b: Bubble) {
   const rect = el.getBoundingClientRect();
   const safeW = width.value || rect.width || BUBBLE_SIZE;
 
-  const px = b.x * (safeW - BUBBLE_SIZE) + BUBBLE_R;
+  const maxX = Math.max(0, safeW - BUBBLE_SIZE);
+  const px = b.x * maxX + BUBBLE_R;
   const py = b.y + BUBBLE_R;
 
   return { clientX: rect.left + px, clientY: rect.top + py };
@@ -555,7 +536,7 @@ function updateParticleStyle(p: Particle) {
   p.style = `transform: translate3d(${x}px, ${y}px, 0); opacity: ${a};`;
 }
 
-/** onboarding */
+/** ===== onboarding ===== */
 const onboardingStep = ref(-1);
 const onboardingOpen = computed(() => onboardingStep.value >= 0);
 const interactionsLocked = computed(() => onboardingOpen.value);
@@ -627,7 +608,7 @@ function spawnPool(): Sound[] {
   if (settings.mode === "target") return [settings.targetSound];
   return settings.selectedSounds.length
     ? settings.selectedSounds
-    : (["R", "L", "SH"] as Sound[]);
+    : [...DEFAULT_SOUNDS];
 }
 
 function pickSpawnItem(): { sound: Sound; word: string } {
@@ -662,13 +643,17 @@ function spawnBubble(m: number) {
   b.popped = false;
   b.removeReason = null;
   b.removeAt = null;
-  updateBubbleTransform(b);
+
+  updateBubbleTransformWithW(b, width.value || BUBBLE_SIZE);
 
   bubbles.value.push(b);
   aliveBubblesCount += 1;
 
   markDirtyB();
 }
+
+const KEEP_HIT_MS = 220;
+const KEEP_MISS_MS = 50;
 
 function removeBubble(
   b: Bubble,
@@ -692,6 +677,7 @@ function removeBubble(
 
 function sweepDeadInPlace(now: number) {
   const arrB = bubbles.value;
+  const beforeB = arrB.length;
   let wB = 0;
 
   for (let i = 0; i < arrB.length; i++) {
@@ -707,8 +693,10 @@ function sweepDeadInPlace(now: number) {
     recycleBubble(b);
   }
   arrB.length = wB;
+  if (wB !== beforeB) markDirtyB();
 
   const arrP = particles.value;
+  const beforeP = arrP.length;
   let wP = 0;
 
   for (let i = 0; i < arrP.length; i++) {
@@ -720,9 +708,7 @@ function sweepDeadInPlace(now: number) {
     }
   }
   arrP.length = wP;
-
-  markDirtyB();
-  markDirtyP();
+  if (wP !== beforeP) markDirtyP();
 }
 
 function clearAllEntitiesToPool() {
@@ -773,7 +759,7 @@ function popBubble(b: Bubble, clientX: number, clientY: number) {
   if (b.popped) return;
 
   const now = nowTs();
-  removeBubble(b, now, 220, "hit");
+  removeBubble(b, now, KEEP_HIT_MS, "hit");
 
   score.value += 1;
   rewardText.value = "";
@@ -791,6 +777,8 @@ async function ensureSizeBeforeLoop() {
     width.value = r.width;
     height.value = r.height;
   }
+
+  refreshLayoutCache(true);
 }
 
 function resetRoundState() {
@@ -806,7 +794,6 @@ function resetRoundState() {
   spawnAcc = 0;
   lastTs = 0;
 
-  // speech pop state reset
   lastInterimKey = "";
   lastInterimCount = 0;
   lastTokenFireAt.clear();
@@ -822,12 +809,10 @@ async function startRound() {
   resetRoundState();
   gameState.value = "running";
 
-  // Важно: стартуем SpeechRecognition прямо из клика (user gesture)
-  if (speech.supported()) {
-    speech.start();
-  }
+  if (speech.supported()) speech.start();
 
   await ensureSizeBeforeLoop();
+
   frameTs = null;
   rafId = requestAnimationFrame(loop);
 }
@@ -838,7 +823,6 @@ function pauseRound() {
   gameState.value = "paused";
   frameTs = null;
 
-  // Останавливаем распознавание при паузе
   speech.stop();
 
   if (rafId !== null) {
@@ -855,10 +839,9 @@ function resumeRound() {
   lastTs = 0;
   frameTs = null;
 
-  // Важно: стартуем из клика (user gesture)
-  if (speech.supported()) {
-    speech.start();
-  }
+  refreshLayoutCache(true);
+
+  if (speech.supported()) speech.start();
 
   rafId = requestAnimationFrame(loop);
 }
@@ -869,7 +852,6 @@ function stopRound(showReward: boolean) {
   gameState.value = "idle";
   frameTs = null;
 
-  // Жёстко выключаем распознавание на стопе
   speech.stop();
 
   if (rafId !== null) {
@@ -897,7 +879,6 @@ function stopRound(showReward: boolean) {
     spawnAcc = 0;
     lastTs = 0;
 
-    // speech pop state reset
     lastInterimKey = "";
     lastInterimCount = 0;
     lastTokenFireAt.clear();
@@ -915,10 +896,8 @@ function loop(ts: number) {
   const dtMotion = Math.min(0.05, Math.max(0.001, dtRaw));
   lastTs = ts;
 
-  // real time
   timeLeftMs = Math.max(0, timeLeftMs - dtRaw * 1000);
 
-  // ui time (10fps)
   if (lastUiTimeUpdateTs === 0 || ts - lastUiTimeUpdateTs >= 100) {
     lastUiTimeUpdateTs = ts;
     timeLeft.value = Math.max(0, timeLeftMs / 1000);
@@ -932,7 +911,6 @@ function loop(ts: number) {
 
   const now = ts;
 
-  // spawn
   const m = computeDifficultyMultiplier();
   const baseSpawn = 0.85 / m;
 
@@ -942,8 +920,9 @@ function loop(ts: number) {
     spawnBubble(m);
   }
 
-  // bubbles motion
+  const safeW = width.value > 0 ? width.value : BUBBLE_SIZE;
   let touchedB = false;
+
   for (let i = 0; i < bubbles.value.length; i++) {
     const b = bubbles.value[i]!;
     if (!b.alive) continue;
@@ -951,16 +930,15 @@ function loop(ts: number) {
     b.y += b.vy * dtMotion;
 
     if (b.y > height.value + BUBBLE_SIZE) {
-      removeBubble(b, now, 50, "miss");
+      removeBubble(b, now, KEEP_MISS_MS, "miss");
       touchedB = true;
     } else {
-      updateBubbleTransform(b);
+      updateBubbleTransformWithW(b, safeW);
       touchedB = true;
     }
   }
   if (touchedB) markDirtyB();
 
-  // particles
   if (particles.value.length) {
     let touchedP = false;
 
@@ -982,7 +960,6 @@ function loop(ts: number) {
     if (touchedP) markDirtyP();
   }
 
-  // sweep
   if (
     ts % 120 < 16 ||
     bubbles.value.length > 64 ||
@@ -1026,7 +1003,7 @@ function toggleSound(sound: Sound) {
   set.has(sound) ? set.delete(sound) : set.add(sound);
 
   const next = Array.from(set) as Sound[];
-  settings.selectedSounds = next.length ? next : (["R", "L", "SH"] as Sound[]);
+  settings.selectedSounds = next.length ? next : [...DEFAULT_SOUNDS];
 }
 function setTarget(sound: Sound) {
   settings.targetSound = sound;
@@ -1054,11 +1031,12 @@ onMounted(async () => {
   await nextTick();
   attachResizeObservers();
 
+  refreshLayoutCache(true);
+
   document.addEventListener("visibilitychange", handleVisibilityChange);
 });
 
 onUnmounted(() => {
-  void mic.stop();
   speech.stop();
 
   ro?.disconnect();
@@ -1067,6 +1045,11 @@ onUnmounted(() => {
   if (roRaf !== null) {
     cancelAnimationFrame(roRaf);
     roRaf = null;
+  }
+
+  if (winResizeHandler) {
+    window.removeEventListener("resize", winResizeHandler);
+    winResizeHandler = null;
   }
 
   if (rafId !== null) {
@@ -1477,61 +1460,22 @@ watch(
                   <p class="text-[12px] text-slate-500">
                     {{ t("soundpop.mic.desc") }}
                   </p>
-
-                  <div class="mt-3 flex flex-wrap gap-2">
-                    <button
-                      v-if="!micOn"
-                      type="button"
-                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98] disabled:opacity-60"
-                      @click="void mic.start()"
-                      :disabled="micUnsupported || micStarting"
-                      :aria-label="t('soundpop.mic.enable')"
+                  <p class="mt-2 text-[12px] text-slate-700 font-semibold">
+                    {{ speechStatusText }}
+                    <span
+                      v-if="speech.errorMessage"
+                      class="ml-1 text-pink-600 font-extrabold"
                     >
-                      {{ t("soundpop.mic.enable") }}
-                    </button>
-
-                    <button
-                      v-else
-                      type="button"
-                      class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-pink-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98]"
-                      @click="mic.stop()"
-                      :aria-label="t('soundpop.mic.disable')"
-                    >
-                      {{ t("soundpop.mic.disable") }}
-                    </button>
-
-                    <div
-                      class="flex min-h-[44px] flex-1 items-center gap-3 rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 shadow-sm backdrop-blur"
-                    >
-                      <div
-                        class="h-2 flex-1 overflow-hidden rounded-full bg-slate-200/70"
-                      >
-                        <div
-                          class="h-full rounded-full bg-sky-400 transition-[width] duration-75"
-                          :style="micBarStyle"
-                        ></div>
-                      </div>
-
-                      <p
-                        class="text-[12px] font-extrabold text-slate-900 tabular-nums"
-                      >
-                        {{ micStatusText }}
-                      </p>
-                    </div>
-                  </div>
-
-                  <p
-                    v-if="micUnsupported"
-                    class="mt-2 text-[12px] text-slate-500"
-                  >
-                    {{ t("soundpop.mic.unsupported") }}
+                      {{ speechErrorText }}
+                    </span>
                   </p>
 
-                  <p
-                    v-else-if="micError"
-                    class="mt-2 text-[12px] text-pink-700"
-                  >
-                    {{ micStatusText }}
+                  <p class="mt-1 text-[11px] text-slate-500">
+                    {{
+                      speech.supported()
+                        ? "Web Speech API"
+                        : "No Web Speech API"
+                    }}
                   </p>
                 </div>
               </details>
@@ -1643,6 +1587,7 @@ watch(
               </details>
 
               <details
+                open
                 class="overflow-hidden rounded-3xl border border-sky-200/70 bg-white/70 shadow-sm backdrop-blur"
               >
                 <summary
@@ -1723,7 +1668,6 @@ watch(
   box-shadow: 0 14px 35px rgba(244, 114, 182, 0.18);
 }
 
-/* minimal animations (so component is self-contained) */
 @keyframes pop {
   0% {
     transform: scale(1);

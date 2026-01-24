@@ -33,6 +33,8 @@ type RecEvent = Event & {
 type RecErrorEvent = Event & {
   error?: string;
   message?: string;
+  name?: string;
+  code?: string;
 };
 
 type SpeechRecognitionLike = {
@@ -58,9 +60,16 @@ function getSpeechCtor(): (new () => SpeechRecognitionLike) | null {
     | null;
 }
 
-function mapSpeechError(ev: any): string {
-  const code = String(ev?.error || "");
-  if (!code) return "speech_error";
+function normalizeErrorCode(codeRaw: string): string {
+  const code = String(codeRaw || "").trim();
+  if (!code) return "";
+  return code.toLowerCase();
+}
+
+function mapSpeechError(evOrErr: any): string {
+  const code = normalizeErrorCode(
+    String(evOrErr?.error || evOrErr?.name || evOrErr?.code || ""),
+  );
 
   if (code === "not-allowed" || code === "service-not-allowed")
     return "permission_denied";
@@ -71,7 +80,25 @@ function mapSpeechError(ev: any): string {
   if (code === "bad-grammar") return "bad_grammar";
   if (code === "language-not-supported") return "language_not_supported";
 
-  return code;
+  if (code === "notallowederror" || code === "securityerror")
+    return "permission_denied";
+  if (code === "notfounderror" || code === "devicesnotfounderror")
+    return "audio_capture";
+  if (code === "invalidstateerror") return "invalid_state";
+  if (code === "aborterror") return "aborted";
+  if (code === "networkerror") return "network";
+  if (code === "notsupportederror") return "unsupported";
+
+  return code || "speech_error";
+}
+
+function isFatalError(mapped: string): boolean {
+  return (
+    mapped === "permission_denied" ||
+    mapped === "audio_capture" ||
+    mapped === "unsupported" ||
+    mapped === "language_not_supported"
+  );
 }
 
 export function useSpeechRecognition(opts: {
@@ -87,10 +114,20 @@ export function useSpeechRecognition(opts: {
   const errorMessage = ref<string>("");
 
   let rec: SpeechRecognitionLike | null = null;
-  let wantRunning = false;
 
-  let restartTimer: number | null = null;
+  let wantRunning = false;
+  let pendingLangRestart = false;
+
+  // защита от повторных start()
+  let isStartingOrListening = false;
+
+  // backoff
+  let restartTimer: ReturnType<typeof setTimeout> | null = null;
   let restartDelay = 250;
+
+  // защита от “устаревших” таймеров/инстансов
+  let instanceId = 0;
+  let timerToken = 0;
 
   function supported(): boolean {
     return Boolean(getSpeechCtor());
@@ -99,19 +136,22 @@ export function useSpeechRecognition(opts: {
   function clearRestartTimer() {
     if (restartTimer !== null) {
       try {
-        clearTimeout(restartTimer);
+        globalThis.clearTimeout(restartTimer);
       } catch {
         // ignore
       }
       restartTimer = null;
     }
+    timerToken += 1;
   }
 
   function destroyRecognizer() {
     clearRestartTimer();
+    pendingLangRestart = false;
+    isStartingOrListening = false;
+
     const r = rec;
     rec = null;
-
     if (!r) return;
 
     try {
@@ -139,6 +179,9 @@ export function useSpeechRecognition(opts: {
       return null;
     }
 
+    instanceId += 1;
+    const myInstance = instanceId;
+
     const r = new Ctor();
     r.lang = String(opts.lang.value || "ru-RU");
     r.continuous = opts.continuous ?? true;
@@ -146,6 +189,9 @@ export function useSpeechRecognition(opts: {
     r.maxAlternatives = opts.maxAlternatives ?? 1;
 
     r.onresult = (ev: RecEvent) => {
+      if (!wantRunning) return;
+      if (myInstance !== instanceId) return;
+
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const res = ev.results[i];
         if (!res) continue;
@@ -160,13 +206,49 @@ export function useSpeechRecognition(opts: {
     };
 
     r.onerror = (ev: RecErrorEvent) => {
+      if (myInstance !== instanceId) return;
+
+      const mapped = mapSpeechError(ev);
+
+      // КЛЮЧЕВОЕ: если пользователь/компонент уже остановил распознавание,
+      // не переводим UI в "error" из-за abort()/stop().
+      if (!wantRunning) return;
+
+      errorMessage.value = mapped;
+      isStartingOrListening = false;
       state.value = "error";
-      errorMessage.value = mapSpeechError(ev);
+
+      if (isFatalError(mapped)) {
+        wantRunning = false;
+        pendingLangRestart = false;
+        clearRestartTimer();
+
+        try {
+          r.abort();
+        } catch {
+          // ignore
+        }
+
+        // освобождаем ресурсы, чтобы в будущем можно было “чисто” стартануть
+        destroyRecognizer();
+      }
     };
 
     r.onend = () => {
+      if (myInstance !== instanceId) return;
+
+      isStartingOrListening = false;
+
       if (!wantRunning) {
         state.value = state.value === "unsupported" ? "unsupported" : "idle";
+        pendingLangRestart = false;
+        return;
+      }
+
+      if (pendingLangRestart) {
+        pendingLangRestart = false;
+        restartDelay = 250;
+        tryStart();
         return;
       }
 
@@ -179,8 +261,10 @@ export function useSpeechRecognition(opts: {
       const delay = restartDelay;
       restartDelay = Math.min(1500, Math.floor(restartDelay * 1.25 + 20));
 
-      restartTimer = window.setTimeout(() => {
+      const myToken = timerToken;
+      restartTimer = globalThis.setTimeout(() => {
         if (!wantRunning) return;
+        if (myToken !== timerToken) return;
         tryStart();
       }, delay);
     };
@@ -193,6 +277,9 @@ export function useSpeechRecognition(opts: {
     if (!supported()) {
       state.value = "unsupported";
       errorMessage.value = "";
+      wantRunning = false;
+      pendingLangRestart = false;
+      isStartingOrListening = false;
       return;
     }
 
@@ -202,30 +289,79 @@ export function useSpeechRecognition(opts: {
     const nextLang = String(opts.lang.value || "ru-RU");
     if (r.lang !== nextLang) r.lang = nextLang;
 
+    if (isStartingOrListening) return;
+
     try {
+      clearRestartTimer();
       state.value = "starting";
       errorMessage.value = "";
+
+      isStartingOrListening = true;
       r.start();
+
       state.value = "listening";
       restartDelay = 250;
     } catch (e: any) {
+      isStartingOrListening = false;
+
+      const mapped = mapSpeechError(e);
       state.value = "error";
-      errorMessage.value = mapSpeechError(e);
+      errorMessage.value = mapped;
+
+      if (
+        mapped === "invalid_state" &&
+        wantRunning &&
+        (opts.autoRestart ?? false)
+      ) {
+        clearRestartTimer();
+        const myToken = timerToken;
+
+        restartTimer = globalThis.setTimeout(() => {
+          if (!wantRunning) return;
+          if (myToken !== timerToken) return;
+
+          try {
+            r.abort();
+          } catch {
+            // ignore
+          }
+          tryStart();
+        }, 120);
+
+        return;
+      }
+
+      if (isFatalError(mapped)) {
+        wantRunning = false;
+        pendingLangRestart = false;
+        clearRestartTimer();
+        destroyRecognizer();
+      }
     }
   }
 
   function start() {
+    if (!supported()) {
+      state.value = "unsupported";
+      errorMessage.value = "";
+      return;
+    }
+
     wantRunning = true;
+    pendingLangRestart = false;
     clearRestartTimer();
     tryStart();
   }
 
   function stop() {
     wantRunning = false;
+    pendingLangRestart = false;
     clearRestartTimer();
+    isStartingOrListening = false;
 
     const r = rec;
     if (r) {
+      // stop → затем abort (в разных браузерах поведение отличается)
       try {
         r.stop();
       } catch {
@@ -241,12 +377,28 @@ export function useSpeechRecognition(opts: {
     state.value = state.value === "unsupported" ? "unsupported" : "idle";
   }
 
+  function restartForLangChange() {
+    if (!wantRunning) return;
+
+    const r = ensureRecognizer();
+    if (!r) return;
+
+    pendingLangRestart = true;
+    clearRestartTimer();
+    isStartingOrListening = false;
+
+    try {
+      r.abort();
+    } catch {
+      pendingLangRestart = false;
+      tryStart();
+    }
+  }
+
   watch(
     () => String(opts.lang.value || ""),
     () => {
-      if (!wantRunning) return;
-      stop();
-      start();
+      restartForLangChange();
     },
   );
 
