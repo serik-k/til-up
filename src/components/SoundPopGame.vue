@@ -20,6 +20,7 @@ import type {
   Sound,
 } from "../types/soundPop";
 import { useMicLevel } from "../composables/useMicLevel";
+import { useSpeechRecognition } from "../composables/useSpeechRecognition";
 
 const { t, locale } = useI18n();
 
@@ -49,6 +50,31 @@ const isIdle = computed(() => gameState.value === "idle");
 const timeLeft = ref(settings.roundSeconds);
 const score = ref(0);
 const rewardText = ref<string>("");
+
+/** ===== i18n helpers ===== */
+const speechLang = computed(() => {
+  const l = String(locale.value || "").toLowerCase();
+  if (l.startsWith("kk")) return "kk-KZ";
+  if (l.startsWith("en")) return "en-US";
+  return "ru-RU";
+});
+
+const localeKey = computed<"ru" | "kk" | "en">(() => {
+  const l = speechLang.value.toLowerCase();
+  if (l.startsWith("kk")) return "kk";
+  if (l.startsWith("en")) return "en";
+  return "ru";
+});
+
+const SOUND_UI_LABEL: Record<"ru" | "kk" | "en", Record<Sound, string>> = {
+  ru: { R: "Р", L: "Л", SH: "Ш" },
+  kk: { R: "Р", L: "Л", SH: "Ш" },
+  en: { R: "R", L: "L", SH: "SH" },
+};
+
+function soundLabel(s: Sound) {
+  return SOUND_UI_LABEL[localeKey.value][s] ?? s;
+}
 
 /** mic (step 1: level meter only) */
 const mic = useMicLevel();
@@ -131,35 +157,225 @@ function clamp(v: number, a: number, b: number) {
   return Math.max(a, Math.min(b, v));
 }
 
-/** ===== i18n helpers ===== */
-const speechLang = computed(() => {
-  const l = String(locale.value || "").toLowerCase();
-  if (l.startsWith("kk")) return "kk-KZ";
-  if (l.startsWith("en")) return "en-US";
-  return "ru-RU";
+/** voice recognition (Web Speech API) */
+const speech = useSpeechRecognition({
+  lang: speechLang,
+  autoRestart: true,
+  continuous: true,
+  interimResults: true,
+  maxAlternatives: 1,
+  onFinal: (text) => {
+    handleSpeechText(text, true);
+  },
+  onInterim: (text) => {
+    handleSpeechText(text, false);
+  },
 });
 
-const localeKey = computed<"ru" | "kk" | "en">(() => {
-  const l = speechLang.value.toLowerCase();
-  if (l.startsWith("kk")) return "kk";
-  if (l.startsWith("en")) return "en";
-  return "ru";
-});
+function normalizeMatch(s: string): string {
+  const v = String(s || "")
+    .toLowerCase()
+    .trim()
+    .replace(/ё/g, "е");
 
-const SOUND_UI_LABEL: Record<"ru" | "kk" | "en", Record<Sound, string>> = {
-  ru: { R: "Р", L: "Л", SH: "Ш" },
-  kk: { R: "Р", L: "Л", SH: "Ш" },
-  en: { R: "R", L: "L", SH: "SH" },
-};
+  // латиница + кириллица + казахские буквы
+  return v.replace(/[^a-zа-яәғқңөұүһі]+/giu, "");
+}
 
-function soundLabel(s: Sound) {
-  return SOUND_UI_LABEL[localeKey.value][s] ?? s;
+function extractTokensFromTranscript(text: string): string[] {
+  const v = String(text || "")
+    .toLowerCase()
+    .replace(/ё/g, "е");
+  const tokens = v.match(/[a-zа-яәғқңөұүһі]+/giu) || [];
+  const out: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const n = normalizeMatch(tokens[i]!);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+function pickBestAliveBubbleByNormWord(norm: string): Bubble | null {
+  // Если одинаковые слова — лопаем тот, что ближе к низу (больше y)
+  let best: Bubble | null = null;
+  let bestY = -Infinity;
+
+  for (let i = 0; i < bubbles.value.length; i++) {
+    const b = bubbles.value[i]!;
+    if (!b.alive) continue;
+    if (b.popped) continue;
+
+    const bw = normalizeMatch(b.word);
+    if (bw !== norm) continue;
+
+    if (b.y > bestY) {
+      bestY = b.y;
+      best = b;
+    }
+  }
+
+  return best;
+}
+
+/** ===== Speech pop tuning ===== */
+const INTERIM_STABLE_HITS = 1; // было 2 — теперь лопаем быстрее
+const INTERIM_COOLDOWN_MS = 70; // было 140 — теперь чаще
+const FINAL_SUPPRESS_MS = 250; // было 450 — финал меньше душим
+
+const MAX_POP_PER_TOKEN = MAX_BUBBLES; // как было
+const MAX_POP_PER_PHRASE = MAX_BUBBLES; // как было (можно 12)
+
+let lastInterimKey = "";
+let lastInterimCount = 0;
+
+const lastTokenFireAt = new Map<string, number>();
+
+function nowPerf() {
+  return performance.now();
+}
+
+function canAttemptToken(token: string, isFinal: boolean, now: number) {
+  const prev = lastTokenFireAt.get(token) ?? 0;
+
+  if (isFinal) {
+    if (now - prev < FINAL_SUPPRESS_MS) return false;
+  } else {
+    if (now - prev < INTERIM_COOLDOWN_MS) return false;
+  }
+
+  return true;
+}
+
+function markTokenFired(token: string, now: number) {
+  lastTokenFireAt.set(token, now);
+}
+
+function bubbleClientCenterFast(b: Bubble, rect: DOMRect, safeW: number) {
+  const px = b.x * (safeW - BUBBLE_SIZE) + BUBBLE_R;
+  const py = b.y + BUBBLE_R;
+  return { clientX: rect.left + px, clientY: rect.top + py };
+}
+
+function popAllMatchingWordWithLayout(
+  normWord: string,
+  rect: DOMRect,
+  safeW: number,
+  maxCount: number,
+) {
+  if (!isRunning.value) return 0;
+  if (interactionsLocked.value) return 0;
+
+  const matches: Bubble[] = [];
+  for (let i = 0; i < bubbles.value.length; i++) {
+    const b = bubbles.value[i]!;
+    if (!b.alive) continue;
+    if (b.popped) continue;
+
+    const bw = normalizeMatch(b.word);
+    if (bw === normWord) matches.push(b);
+  }
+
+  if (!matches.length) return 0;
+
+  // снизу вверх
+  matches.sort((a, b) => b.y - a.y);
+
+  const limit = Math.max(1, Math.min(maxCount, MAX_POP_PER_TOKEN));
+
+  let popped = 0;
+  for (let i = 0; i < matches.length && popped < limit; i++) {
+    const b = matches[i]!;
+    const c = bubbleClientCenterFast(b, rect, safeW);
+    popBubble(b, c.clientX, c.clientY);
+    popped += 1;
+  }
+
+  return popped;
+}
+
+function handleSpeechText(text: string, isFinal: boolean) {
+  if (!isRunning.value) return;
+  if (interactionsLocked.value) return;
+
+  const tokens = extractTokensFromTranscript(text);
+  if (!tokens.length) return;
+
+  const now = nowPerf();
+
+  // "главное" слово — последнее
+  const lastToken = tokens[tokens.length - 1]!;
+  if (!lastToken) return;
+
+  // стабилизация interim (ускоряет и защищает от дребезга)
+  if (!isFinal) {
+    if (lastToken === lastInterimKey) lastInterimCount += 1;
+    else {
+      lastInterimKey = lastToken;
+      lastInterimCount = 1;
+    }
+    if (lastInterimCount < INTERIM_STABLE_HITS) return;
+  }
+
+  const el = containerRef.value;
+  if (!el) return;
+
+  const rect = el.getBoundingClientRect();
+  const safeW = width.value || rect.width || BUBBLE_SIZE;
+
+  // helper: пробуем токен, cooldown ставим ТОЛЬКО если реально лопнули
+  const tryPopToken = (token: string, remaining: number) => {
+    if (!token) return { popped: 0, remaining };
+    if (!canAttemptToken(token, isFinal, now)) return { popped: 0, remaining };
+
+    const popped = popAllMatchingWordWithLayout(token, rect, safeW, remaining);
+    if (popped > 0) {
+      markTokenFired(token, now);
+
+      // ускорение: чтобы следующее слово не ждало "стабильности" из прошлого
+      lastInterimKey = "";
+      lastInterimCount = 0;
+
+      return { popped, remaining: remaining - popped };
+    }
+
+    return { popped: 0, remaining };
+  };
+
+  // target: лопаем по одному "главному" слову, но если не нашли — fallback по токенам
+  if (settings.mode === "target") {
+    let r = tryPopToken(lastToken, MAX_BUBBLES);
+    if (r.popped > 0) return;
+
+    // fallback: пробуем остальные слова справа налево, пока не найдём совпадение
+    for (let i = tokens.length - 1; i >= 0; i--) {
+      const tkn = tokens[i]!;
+      r = tryPopToken(tkn, MAX_BUBBLES);
+      if (r.popped > 0) break;
+    }
+    return;
+  }
+
+  // mixed: лопаем ВСЕ уникальные слова из фразы (справа налево) в пределах MAX_POP_PER_PHRASE
+  let remaining = MAX_POP_PER_PHRASE;
+  const seen = new Set<string>();
+
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    if (remaining <= 0) break;
+
+    const tkn = tokens[i]!;
+    if (!tkn) continue;
+    if (seen.has(tkn)) continue;
+    seen.add(tkn);
+
+    const res = tryPopToken(tkn, remaining);
+    remaining = res.remaining;
+  }
 }
 
 /** ===== words to spawn (short, child-friendly) ===== */
 const WORDS: Record<"ru" | "kk" | "en", Record<Sound, string[]>> = {
   ru: {
-    R: ["робот", "ракета", "рыцарь", "радуга", "ракетка"],
+    R: ["робот", "ракета", "рыцарь", "радуга", "рама"],
     L: ["лев", "лимонад", "лего", "лиса", "лабиринт"],
     SH: ["шахматы", "шоколад", "шлем", "шарик", "шутка"],
   },
@@ -590,6 +806,11 @@ function resetRoundState() {
   spawnAcc = 0;
   lastTs = 0;
 
+  // speech pop state reset
+  lastInterimKey = "";
+  lastInterimCount = 0;
+  lastTokenFireAt.clear();
+
   dirtyBubbles = false;
   dirtyParticles = false;
 }
@@ -601,6 +822,11 @@ async function startRound() {
   resetRoundState();
   gameState.value = "running";
 
+  // Важно: стартуем SpeechRecognition прямо из клика (user gesture)
+  if (speech.supported()) {
+    speech.start();
+  }
+
   await ensureSizeBeforeLoop();
   frameTs = null;
   rafId = requestAnimationFrame(loop);
@@ -608,8 +834,13 @@ async function startRound() {
 
 function pauseRound() {
   if (!isRunning.value) return;
+
   gameState.value = "paused";
   frameTs = null;
+
+  // Останавливаем распознавание при паузе
+  speech.stop();
+
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
     rafId = null;
@@ -623,6 +854,12 @@ function resumeRound() {
   gameState.value = "running";
   lastTs = 0;
   frameTs = null;
+
+  // Важно: стартуем из клика (user gesture)
+  if (speech.supported()) {
+    speech.start();
+  }
+
   rafId = requestAnimationFrame(loop);
 }
 
@@ -631,6 +868,10 @@ function stopRound(showReward: boolean) {
 
   gameState.value = "idle";
   frameTs = null;
+
+  // Жёстко выключаем распознавание на стопе
+  speech.stop();
+
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
     rafId = null;
@@ -655,6 +896,11 @@ function stopRound(showReward: boolean) {
 
     spawnAcc = 0;
     lastTs = 0;
+
+    // speech pop state reset
+    lastInterimKey = "";
+    lastInterimCount = 0;
+    lastTokenFireAt.clear();
   }
 }
 
@@ -813,6 +1059,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   void mic.stop();
+  speech.stop();
 
   ro?.disconnect();
   ro = null;
