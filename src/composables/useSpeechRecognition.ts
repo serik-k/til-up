@@ -111,8 +111,8 @@ function nowMs(): number {
   const p: any = (globalThis as any).performance;
   return typeof p?.now === "function" ? p.now() : Date.now();
 }
-// ----------------------------------------
 
+// ----------------------------------------
 export function useSpeechRecognition(opts: {
   lang: Ref<string>;
   onFinal: (text: string) => void;
@@ -138,15 +138,16 @@ export function useSpeechRecognition(opts: {
   let instanceId = 0;
   let timerToken = 0;
 
-  // --- ADD: loop guard for Telegram/Instagram WebView ---
   const isInApp = detectInAppBrowser();
+
+  const allowAutoRestart = Boolean(opts.autoRestart) && !isInApp;
+
   let lastStartAt = 0;
   let gotResultThisSession = false;
   let quickEndStreak = 0;
 
   const QUICK_END_MS = isInApp ? 1200 : 700;
   const MAX_QUICK_ENDS = isInApp ? 1 : 3;
-  // -----------------------------------------------------
 
   function supported(): boolean {
     return Boolean(getSpeechCtor());
@@ -213,10 +214,8 @@ export function useSpeechRecognition(opts: {
       if (!wantRunning) return;
       if (myInstance !== instanceId) return;
 
-      // --- ADD: mark that session produced something ---
       gotResultThisSession = true;
       quickEndStreak = 0;
-      // -------------------------------------------------
 
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const res = ev.results[i];
@@ -235,7 +234,6 @@ export function useSpeechRecognition(opts: {
       if (myInstance !== instanceId) return;
 
       const mapped = mapSpeechError(ev);
-
       if (!wantRunning) return;
 
       if (mapped === "aborted" && pendingLangRestart) return;
@@ -277,12 +275,12 @@ export function useSpeechRecognition(opts: {
         return;
       }
 
-      if (!opts.autoRestart) {
+      if (!allowAutoRestart) {
         state.value = "idle";
         return;
       }
 
-      // --- ADD: guard against endless onend→start loop (WebView) ---
+      // --- guard against endless onend→start loop ---
       const elapsed = nowMs() - lastStartAt;
       if (!gotResultThisSession && elapsed < QUICK_END_MS) {
         quickEndStreak += 1;
@@ -301,7 +299,7 @@ export function useSpeechRecognition(opts: {
       } else {
         quickEndStreak = 0;
       }
-      // ------------------------------------------------------------
+      // --------------------------------------------
 
       clearRestartTimer();
       const delay = restartDelay;
@@ -344,10 +342,8 @@ export function useSpeechRecognition(opts: {
 
       isStartingOrListening = true;
 
-      // --- ADD: session start markers ---
       lastStartAt = nowMs();
       gotResultThisSession = false;
-      // ---------------------------------
 
       r.start();
 
@@ -360,11 +356,7 @@ export function useSpeechRecognition(opts: {
       state.value = "error";
       errorMessage.value = mapped;
 
-      if (
-        mapped === "invalid_state" &&
-        wantRunning &&
-        (opts.autoRestart ?? false)
-      ) {
+      if (mapped === "invalid_state" && wantRunning && allowAutoRestart) {
         clearRestartTimer();
         const myToken = timerToken;
 
@@ -418,11 +410,6 @@ export function useSpeechRecognition(opts: {
       } catch {
         // ignore
       }
-      try {
-        r.abort();
-      } catch {
-        // ignore
-      }
     }
 
     state.value = state.value === "unsupported" ? "unsupported" : "idle";
@@ -464,5 +451,7 @@ export function useSpeechRecognition(opts: {
     start,
     stop,
     supported,
+    isInApp,
+    allowAutoRestart,
   };
 }

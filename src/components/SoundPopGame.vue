@@ -148,6 +148,13 @@ const speechErrorText = computed(() => {
   return msg;
 });
 
+const isInApp = computed(() => Boolean((speech as any).isInApp));
+
+const inAppHintText = computed(() => {
+  if (!isInApp.value) return "";
+  return t("soundpop.mic.errors.isInApp");
+});
+
 /** ===== speech pop utils ===== */
 function normalizeMatch(s: string): string {
   const v = String(s || "")
@@ -1469,7 +1476,9 @@ watch(
                       {{ speechErrorText }}
                     </span>
                   </p>
-
+                  <p v-if="isInApp" class="mt-2 text-[11px] text-slate-500">
+                    {{ inAppHintText }}
+                  </p>
                   <p class="mt-1 text-[11px] text-slate-500">
                     {{
                       speech.supported()

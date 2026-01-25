@@ -142,7 +142,8 @@
         "language_not_supported": "The selected language is not supported in this browser.",
         "invalid_state": "Recognition is already running or in an invalid state. Disable and enable again.",
         "unsupported": "Speech recognition is not supported in this browser.",
-        "speech_error": "Could not start speech recognition. Please try again."
+        "speech_error": "Could not start speech recognition. Please try again.",
+        "isInApp": "In-app browser may stop the mic. If voice stops — tap “Resume”."
       }
     },
     "mode": {
