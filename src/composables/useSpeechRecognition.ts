@@ -112,7 +112,6 @@ function nowMs(): number {
   return typeof p?.now === "function" ? p.now() : Date.now();
 }
 
-// ----------------------------------------
 export function useSpeechRecognition(opts: {
   lang: Ref<string>;
   onFinal: (text: string) => void;
@@ -139,12 +138,13 @@ export function useSpeechRecognition(opts: {
   let timerToken = 0;
 
   const isInApp = detectInAppBrowser();
-
   const allowAutoRestart = Boolean(opts.autoRestart) && !isInApp;
 
   let lastStartAt = 0;
   let gotResultThisSession = false;
   let quickEndStreak = 0;
+
+  let lastErrorMapped = "";
 
   const QUICK_END_MS = isInApp ? 1200 : 700;
   const MAX_QUICK_ENDS = isInApp ? 1 : 3;
@@ -169,6 +169,7 @@ export function useSpeechRecognition(opts: {
     clearRestartTimer();
     pendingLangRestart = false;
     isStartingOrListening = false;
+    lastErrorMapped = "";
 
     const r = rec;
     rec = null;
@@ -204,9 +205,7 @@ export function useSpeechRecognition(opts: {
 
     const r = new Ctor();
     r.lang = String(opts.lang.value || "ru-RU");
-
     r.continuous = opts.continuous ?? true;
-
     r.interimResults = opts.interimResults ?? true;
     r.maxAlternatives = opts.maxAlternatives ?? 1;
 
@@ -236,7 +235,12 @@ export function useSpeechRecognition(opts: {
       const mapped = mapSpeechError(ev);
       if (!wantRunning) return;
 
-      if (mapped === "aborted" && pendingLangRestart) return;
+      if (mapped === "aborted" && pendingLangRestart) {
+        lastErrorMapped = "aborted";
+        return;
+      }
+
+      lastErrorMapped = mapped;
 
       errorMessage.value = mapped;
       isStartingOrListening = false;
@@ -254,6 +258,17 @@ export function useSpeechRecognition(opts: {
         }
 
         destroyRecognizer();
+        return;
+      }
+
+      if (allowAutoRestart) {
+        clearRestartTimer();
+        const myToken = timerToken;
+        restartTimer = globalThis.setTimeout(() => {
+          if (!wantRunning) return;
+          if (myToken !== timerToken) return;
+          tryStart();
+        }, 250);
       }
     };
 
@@ -265,6 +280,7 @@ export function useSpeechRecognition(opts: {
       if (!wantRunning) {
         state.value = state.value === "unsupported" ? "unsupported" : "idle";
         pendingLangRestart = false;
+        lastErrorMapped = "";
         return;
       }
 
@@ -277,12 +293,15 @@ export function useSpeechRecognition(opts: {
 
       if (!allowAutoRestart) {
         state.value = "idle";
+        lastErrorMapped = "";
         return;
       }
 
-      // --- guard against endless onend→start loop ---
       const elapsed = nowMs() - lastStartAt;
-      if (!gotResultThisSession && elapsed < QUICK_END_MS) {
+
+      const ignoreQuickEnd =
+        lastErrorMapped === "no_speech" || lastErrorMapped === "aborted";
+      if (!ignoreQuickEnd && !gotResultThisSession && elapsed < QUICK_END_MS) {
         quickEndStreak += 1;
 
         if (quickEndStreak >= MAX_QUICK_ENDS) {
@@ -294,6 +313,7 @@ export function useSpeechRecognition(opts: {
             ? "in_app_browser_audio_blocked"
             : "unstable_recognition";
           destroyRecognizer();
+          lastErrorMapped = "";
           return;
         }
       } else {
@@ -301,7 +321,9 @@ export function useSpeechRecognition(opts: {
       }
       // --------------------------------------------
 
+      lastErrorMapped = "";
       clearRestartTimer();
+
       const delay = restartDelay;
       restartDelay = Math.min(1500, Math.floor(restartDelay * 1.25 + 20));
 
@@ -324,8 +346,10 @@ export function useSpeechRecognition(opts: {
       wantRunning = false;
       pendingLangRestart = false;
       isStartingOrListening = false;
+      lastErrorMapped = "";
       return;
     }
+    lastErrorMapped = "";
 
     const r = ensureRecognizer();
     if (!r) return;
@@ -393,6 +417,9 @@ export function useSpeechRecognition(opts: {
 
     wantRunning = true;
     pendingLangRestart = false;
+
+    quickEndStreak = 0;
+    lastErrorMapped = "";
     clearRestartTimer();
     tryStart();
   }
@@ -400,6 +427,10 @@ export function useSpeechRecognition(opts: {
   function stop() {
     wantRunning = false;
     pendingLangRestart = false;
+
+    quickEndStreak = 0;
+    lastErrorMapped = "";
+
     clearRestartTimer();
     isStartingOrListening = false;
 
