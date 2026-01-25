@@ -276,7 +276,6 @@ export function useSpeechRecognition(opts: {
       }
 
       if (!allowAutoRestart) {
-        if (isInApp) wantRunning = false;
         state.value = "idle";
         return;
       }
@@ -319,8 +318,6 @@ export function useSpeechRecognition(opts: {
   }
 
   function tryStart() {
-    if (isStartingOrListening || state.value === "listening") return;
-
     if (!supported()) {
       state.value = "unsupported";
       errorMessage.value = "";
@@ -394,8 +391,6 @@ export function useSpeechRecognition(opts: {
       return;
     }
 
-    if (isStartingOrListening || state.value === "listening") return;
-
     wantRunning = true;
     pendingLangRestart = false;
     clearRestartTimer();
@@ -423,10 +418,6 @@ export function useSpeechRecognition(opts: {
   function restartForLangChange() {
     if (!wantRunning) return;
 
-    if (isInApp) {
-      stop();
-      return;
-    }
     const r = ensureRecognizer();
     if (!r) return;
 
