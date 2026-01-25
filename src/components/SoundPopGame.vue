@@ -1027,6 +1027,7 @@ function setRoundSeconds(v: number) {
 
 /** visibility auto-pause */
 function handleVisibilityChange() {
+  if ((speech as any).isInApp) return;
   if (document.hidden && isRunning.value) pauseRound();
 }
 

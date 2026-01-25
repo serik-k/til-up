@@ -205,7 +205,7 @@ export function useSpeechRecognition(opts: {
     const r = new Ctor();
     r.lang = String(opts.lang.value || "ru-RU");
 
-    r.continuous = (opts.continuous ?? true) && !isInApp;
+    r.continuous = opts.continuous ?? true;
 
     r.interimResults = opts.interimResults ?? true;
     r.maxAlternatives = opts.maxAlternatives ?? 1;
@@ -276,6 +276,7 @@ export function useSpeechRecognition(opts: {
       }
 
       if (!allowAutoRestart) {
+        if (isInApp) wantRunning = false;
         state.value = "idle";
         return;
       }
@@ -318,6 +319,8 @@ export function useSpeechRecognition(opts: {
   }
 
   function tryStart() {
+    if (isStartingOrListening || state.value === "listening") return;
+
     if (!supported()) {
       state.value = "unsupported";
       errorMessage.value = "";
@@ -391,6 +394,8 @@ export function useSpeechRecognition(opts: {
       return;
     }
 
+    if (isStartingOrListening || state.value === "listening") return;
+
     wantRunning = true;
     pendingLangRestart = false;
     clearRestartTimer();
@@ -418,6 +423,10 @@ export function useSpeechRecognition(opts: {
   function restartForLangChange() {
     if (!wantRunning) return;
 
+    if (isInApp) {
+      stop();
+      return;
+    }
     const r = ensureRecognizer();
     if (!r) return;
 
