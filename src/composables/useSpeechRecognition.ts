@@ -101,6 +101,18 @@ function isFatalError(mapped: string): boolean {
   );
 }
 
+function detectInAppBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = String(navigator.userAgent || "");
+  return /Telegram|Instagram|FB_IAB|FBAV/i.test(ua);
+}
+
+function nowMs(): number {
+  const p: any = (globalThis as any).performance;
+  return typeof p?.now === "function" ? p.now() : Date.now();
+}
+// ----------------------------------------
+
 export function useSpeechRecognition(opts: {
   lang: Ref<string>;
   onFinal: (text: string) => void;
@@ -118,16 +130,23 @@ export function useSpeechRecognition(opts: {
   let wantRunning = false;
   let pendingLangRestart = false;
 
-  // защита от повторных start()
   let isStartingOrListening = false;
 
-  // backoff
   let restartTimer: ReturnType<typeof setTimeout> | null = null;
   let restartDelay = 250;
 
-  // защита от “устаревших” таймеров/инстансов
   let instanceId = 0;
   let timerToken = 0;
+
+  // --- ADD: loop guard for Telegram/Instagram WebView ---
+  const isInApp = detectInAppBrowser();
+  let lastStartAt = 0;
+  let gotResultThisSession = false;
+  let quickEndStreak = 0;
+
+  const QUICK_END_MS = isInApp ? 1200 : 700;
+  const MAX_QUICK_ENDS = isInApp ? 1 : 3;
+  // -----------------------------------------------------
 
   function supported(): boolean {
     return Boolean(getSpeechCtor());
@@ -184,13 +203,20 @@ export function useSpeechRecognition(opts: {
 
     const r = new Ctor();
     r.lang = String(opts.lang.value || "ru-RU");
-    r.continuous = opts.continuous ?? true;
+
+    r.continuous = (opts.continuous ?? true) && !isInApp;
+
     r.interimResults = opts.interimResults ?? true;
     r.maxAlternatives = opts.maxAlternatives ?? 1;
 
     r.onresult = (ev: RecEvent) => {
       if (!wantRunning) return;
       if (myInstance !== instanceId) return;
+
+      // --- ADD: mark that session produced something ---
+      gotResultThisSession = true;
+      quickEndStreak = 0;
+      // -------------------------------------------------
 
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const res = ev.results[i];
@@ -210,9 +236,9 @@ export function useSpeechRecognition(opts: {
 
       const mapped = mapSpeechError(ev);
 
-      // КЛЮЧЕВОЕ: если пользователь/компонент уже остановил распознавание,
-      // не переводим UI в "error" из-за abort()/stop().
       if (!wantRunning) return;
+
+      if (mapped === "aborted" && pendingLangRestart) return;
 
       errorMessage.value = mapped;
       isStartingOrListening = false;
@@ -229,7 +255,6 @@ export function useSpeechRecognition(opts: {
           // ignore
         }
 
-        // освобождаем ресурсы, чтобы в будущем можно было “чисто” стартануть
         destroyRecognizer();
       }
     };
@@ -256,6 +281,27 @@ export function useSpeechRecognition(opts: {
         state.value = "idle";
         return;
       }
+
+      // --- ADD: guard against endless onend→start loop (WebView) ---
+      const elapsed = nowMs() - lastStartAt;
+      if (!gotResultThisSession && elapsed < QUICK_END_MS) {
+        quickEndStreak += 1;
+
+        if (quickEndStreak >= MAX_QUICK_ENDS) {
+          wantRunning = false;
+          pendingLangRestart = false;
+          clearRestartTimer();
+          state.value = "error";
+          errorMessage.value = isInApp
+            ? "in_app_browser_audio_blocked"
+            : "unstable_recognition";
+          destroyRecognizer();
+          return;
+        }
+      } else {
+        quickEndStreak = 0;
+      }
+      // ------------------------------------------------------------
 
       clearRestartTimer();
       const delay = restartDelay;
@@ -297,6 +343,12 @@ export function useSpeechRecognition(opts: {
       errorMessage.value = "";
 
       isStartingOrListening = true;
+
+      // --- ADD: session start markers ---
+      lastStartAt = nowMs();
+      gotResultThisSession = false;
+      // ---------------------------------
+
       r.start();
 
       state.value = "listening";
@@ -361,7 +413,6 @@ export function useSpeechRecognition(opts: {
 
     const r = rec;
     if (r) {
-      // stop → затем abort (в разных браузерах поведение отличается)
       try {
         r.stop();
       } catch {
