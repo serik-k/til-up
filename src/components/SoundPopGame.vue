@@ -213,7 +213,6 @@ function markTokenFired(token: string, now: number) {
 }
 
 /** ===== layout cache (perf: avoid frequent getBoundingClientRect) ===== */
-let layoutRect: DOMRect | null = null;
 let layoutSafeW = BUBBLE_SIZE;
 let layoutCacheTs = 0;
 
@@ -225,21 +224,12 @@ function refreshLayoutCache(force = false) {
   if (!force && now - layoutCacheTs < 120) return;
 
   const rect = el.getBoundingClientRect();
-  layoutRect = rect;
   layoutSafeW = width.value || rect.width || BUBBLE_SIZE;
   layoutCacheTs = now;
 }
 
-function bubbleClientCenterFast(b: Bubble, rect: DOMRect, safeW: number) {
-  const maxX = Math.max(0, safeW - BUBBLE_SIZE);
-  const px = b.x * maxX + BUBBLE_R;
-  const py = b.y + BUBBLE_R;
-  return { clientX: rect.left + px, clientY: rect.top + py };
-}
-
 function popAllMatchingWordWithLayout(
   normWord: string,
-  rect: DOMRect,
   safeW: number,
   maxCount: number,
 ) {
@@ -262,10 +252,12 @@ function popAllMatchingWordWithLayout(
   matches.sort((a, b) => b.y - a.y);
 
   let popped = 0;
+  const maxX = Math.max(0, safeW - BUBBLE_SIZE);
   for (let i = 0; i < matches.length && popped < limit; i++) {
     const b = matches[i]!;
-    const c = bubbleClientCenterFast(b, rect, safeW);
-    popBubble(b, c.clientX, c.clientY);
+    const px = b.x * maxX + BUBBLE_R;
+    const py = b.y + BUBBLE_R;
+    popBubble(b, px, py);
     popped += 1;
   }
 
@@ -294,8 +286,6 @@ function handleSpeechText(text: string, isFinal: boolean) {
   }
 
   refreshLayoutCache(false);
-  const rect = layoutRect;
-  if (!rect) return;
   const safeW = layoutSafeW;
 
   const tryPopToken = (token: string, remaining: number) => {
@@ -303,7 +293,7 @@ function handleSpeechText(text: string, isFinal: boolean) {
     if (remaining <= 0) return { popped: 0, remaining };
     if (!canAttemptToken(token, isFinal, now)) return { popped: 0, remaining };
 
-    const popped = popAllMatchingWordWithLayout(token, rect, safeW, remaining);
+    const popped = popAllMatchingWordWithLayout(token, safeW, remaining);
     if (popped > 0) {
       markTokenFired(token, now);
       lastInterimKey = "";
@@ -319,6 +309,7 @@ function handleSpeechText(text: string, isFinal: boolean) {
     if (r.popped > 0) return;
 
     for (let i = tokens.length - 1; i >= 0; i--) {
+      if (i === tokens.length - 1) continue;
       const tkn = tokens[i]!;
       r = tryPopToken(tkn, MAX_BUBBLES);
       if (r.popped > 0) break;
@@ -476,7 +467,7 @@ const bubblePool: Bubble[] = [];
 function getParticle(): Particle {
   return (
     particlePool.pop() ?? {
-      id: "",
+      id: uid("p"),
       x: 0,
       y: 0,
       vx: 0,
@@ -495,7 +486,7 @@ function recycleParticle(p: Particle) {
 function getBubble(): Bubble {
   return (
     bubblePool.pop() ?? {
-      id: "",
+      id: uid("b"),
       x: 0,
       y: 0,
       vy: 0,
@@ -520,20 +511,6 @@ function containerPointFromClient(clientX: number, clientY: number) {
   if (!el) return { x: clientX, y: clientY };
   const rect = el.getBoundingClientRect();
   return { x: clientX - rect.left, y: clientY - rect.top };
-}
-
-function bubbleClientCenter(b: Bubble) {
-  const el = containerRef.value;
-  if (!el) return { clientX: 0, clientY: 0 };
-
-  const rect = el.getBoundingClientRect();
-  const safeW = width.value || rect.width || BUBBLE_SIZE;
-
-  const maxX = Math.max(0, safeW - BUBBLE_SIZE);
-  const px = b.x * maxX + BUBBLE_R;
-  const py = b.y + BUBBLE_R;
-
-  return { clientX: rect.left + px, clientY: rect.top + py };
 }
 
 function updateParticleStyle(p: Particle) {
@@ -638,7 +615,6 @@ function spawnBubble(m: number) {
   const { sound, word } = pickSpawnItem();
 
   const b = getBubble();
-  b.id = uid("b");
   b.x = Math.random();
   b.y = -BUBBLE_SIZE;
   b.vy = (70 + Math.random() * 40) * m;
@@ -735,18 +711,15 @@ function clearAllEntitiesToPool() {
   triggerRef(particles);
 }
 
-function addParticles(clientX: number, clientY: number, now: number) {
-  const pt = containerPointFromClient(clientX, clientY);
-
+function addParticles(localX: number, localY: number, now: number) {
   const count = 14;
   for (let i = 0; i < count; i++) {
     const ang = Math.random() * Math.PI * 2;
     const sp = 80 + Math.random() * 160;
 
     const p = getParticle();
-    p.id = uid("p");
-    p.x = pt.x;
-    p.y = pt.y;
+    p.x = localX;
+    p.y = localY;
     p.vx = Math.cos(ang) * sp;
     p.vy = Math.sin(ang) * sp - 60;
     p.life = 650 + Math.random() * 350;
@@ -760,7 +733,7 @@ function addParticles(clientX: number, clientY: number, now: number) {
   markDirtyP();
 }
 
-function popBubble(b: Bubble, clientX: number, clientY: number) {
+function popBubble(b: Bubble, localX: number, localY: number) {
   if (!isRunning.value) return;
   if (interactionsLocked.value) return;
   if (b.popped) return;
@@ -771,7 +744,7 @@ function popBubble(b: Bubble, clientX: number, clientY: number) {
   score.value += 1;
   rewardText.value = "";
 
-  addParticles(clientX, clientY, now);
+  addParticles(localX, localY, now);
 }
 
 async function ensureSizeBeforeLoop() {
@@ -987,7 +960,8 @@ function onBubblePointerDown(b: Bubble, e: PointerEvent) {
   e.preventDefault();
   e.stopPropagation();
 
-  popBubble(b, e.clientX, e.clientY);
+  const pt = containerPointFromClient(e.clientX, e.clientY);
+  popBubble(b, pt.x, pt.y);
 }
 
 function onBubbleKeydown(b: Bubble, e: KeyboardEvent) {
@@ -1000,8 +974,11 @@ function onBubbleKeydown(b: Bubble, e: KeyboardEvent) {
   e.preventDefault();
   e.stopPropagation();
 
-  const c = bubbleClientCenter(b);
-  popBubble(b, c.clientX, c.clientY);
+  const safeW = width.value || layoutSafeW || BUBBLE_SIZE;
+  const maxX = Math.max(0, safeW - BUBBLE_SIZE);
+  const px = b.x * maxX + BUBBLE_R;
+  const py = b.y + BUBBLE_R;
+  popBubble(b, px, py);
 }
 
 /** settings */

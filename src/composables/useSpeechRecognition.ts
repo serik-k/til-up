@@ -107,6 +107,40 @@ function detectInAppBrowser(): boolean {
   return /Telegram|Instagram|FB_IAB|FBAV/i.test(ua);
 }
 
+function detectMobile(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = String(navigator.userAgent || "");
+  return /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|Opera Mini|IEMobile/i.test(ua);
+}
+
+let _micStream: MediaStream | null = null;
+let _micWarmupDone = false;
+
+async function warmupMicrophone(): Promise<void> {
+  if (_micWarmupDone) return;
+  _micWarmupDone = true;
+
+  if (typeof navigator === "undefined") return;
+  if (!navigator.mediaDevices?.getUserMedia) return;
+
+  try {
+    _micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    // permission denied or no mic — will be handled by SpeechRecognition itself
+  }
+}
+
+function releaseMicStream() {
+  if (_micStream) {
+    try {
+      _micStream.getTracks().forEach((t) => t.stop());
+    } catch {
+      // ignore
+    }
+    _micStream = null;
+  }
+}
+
 function nowMs(): number {
   const p: any = (globalThis as any).performance;
   return typeof p?.now === "function" ? p.now() : Date.now();
@@ -138,6 +172,7 @@ export function useSpeechRecognition(opts: {
   let timerToken = 0;
 
   const isInApp = detectInAppBrowser();
+  const isMobile = detectMobile();
   const allowAutoRestart = Boolean(opts.autoRestart) && !isInApp;
 
   let lastStartAt = 0;
@@ -146,8 +181,10 @@ export function useSpeechRecognition(opts: {
 
   let lastErrorMapped = "";
 
-  const QUICK_END_MS = isInApp ? 1200 : 700;
-  const MAX_QUICK_ENDS = isInApp ? 1 : 3;
+  const QUICK_END_MS = isInApp ? 1200 : isMobile ? 900 : 700;
+  const MAX_QUICK_ENDS = isInApp ? 1 : isMobile ? 5 : 3;
+
+  const MOBILE_RESTART_DELAY = 350;
 
   function supported(): boolean {
     return Boolean(getSpeechCtor());
@@ -324,8 +361,10 @@ export function useSpeechRecognition(opts: {
       lastErrorMapped = "";
       clearRestartTimer();
 
-      const delay = restartDelay;
-      restartDelay = Math.min(1500, Math.floor(restartDelay * 1.25 + 20));
+      const delay = isMobile
+        ? Math.max(MOBILE_RESTART_DELAY, restartDelay)
+        : restartDelay;
+      restartDelay = Math.min(isMobile ? 2000 : 1500, Math.floor(restartDelay * 1.25 + 20));
 
       const myToken = timerToken;
       restartTimer = globalThis.setTimeout(() => {
@@ -404,16 +443,30 @@ export function useSpeechRecognition(opts: {
         pendingLangRestart = false;
         clearRestartTimer();
         destroyRecognizer();
+        return;
+      }
+
+      if (wantRunning && allowAutoRestart) {
+        clearRestartTimer();
+        const myToken = timerToken;
+
+        restartTimer = globalThis.setTimeout(() => {
+          if (!wantRunning) return;
+          if (myToken !== timerToken) return;
+          tryStart();
+        }, 250);
       }
     }
   }
 
-  function start() {
+  async function start() {
     if (!supported()) {
       state.value = "unsupported";
       errorMessage.value = "";
       return;
     }
+
+    await warmupMicrophone();
 
     wantRunning = true;
     pendingLangRestart = false;
@@ -454,7 +507,6 @@ export function useSpeechRecognition(opts: {
 
     pendingLangRestart = true;
     clearRestartTimer();
-    isStartingOrListening = false;
 
     try {
       r.abort();
@@ -474,6 +526,7 @@ export function useSpeechRecognition(opts: {
   onUnmounted(() => {
     stop();
     destroyRecognizer();
+    releaseMicStream();
   });
 
   return {
@@ -483,6 +536,7 @@ export function useSpeechRecognition(opts: {
     stop,
     supported,
     isInApp,
+    isMobile,
     allowAutoRestart,
   };
 }
