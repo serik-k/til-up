@@ -1,535 +1,174 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, defineComponent, h, onUnmounted, ref } from 'vue';
-import { useI18n } from 'vue-i18n';
+import { computed, ref } from 'vue';
+import { useHead } from '@vueuse/head';
+import Mascot from '../components/Mascot.vue';
+import SoundPopGame from '../components/SoundPopGame.vue';
+import { APP_COPY, SEO_COPY, type Locale } from '../content';
 
-import HeroPlayZone from '../components/HeroPlayZone.vue';
-import ParentsTrustSection from '../components/ParentsTrustSection.vue';
-import SocialDock from '../components/SocialDock.vue';
-
-import { useIntersectionOnce } from '../composables/useIntersectionOnce';
-import { useSeo } from '../composables/useSeo';
-
-import type { AppLocale } from './i18n';
-import { persistLocale } from './i18n';
-import FloatingTitle from '../components/FloatingTitle.vue';
-
-const { t, locale } = useI18n();
-useSeo({ t, locale } as any);
-
-type Mode = 'kids' | 'parents';
-const mode = ref<Mode>('parents');
-const isKids = computed(() => mode.value === 'kids');
-
-const holding = ref(false);
-const holdProgress = ref(0);
-const holdMs = 1400;
-
-let holdRaf: number | null = null;
-let holdStart = 0;
-
-const targetMode = ref<Mode | null>(null);
-
-const holdPointerId = ref<number | null>(null);
-const holdStartX = ref(0);
-const holdStartY = ref(0);
-const moveCancelPx = 12;
-
-function stopHold() {
-  holding.value = false;
-  holdProgress.value = 0;
-  targetMode.value = null;
-  holdPointerId.value = null;
-
-  if (holdRaf !== null) {
-    window.cancelAnimationFrame(holdRaf);
-    holdRaf = null;
-  }
-}
-
-function startHoldToggleMode() {
-  if (holding.value) return;
-
-  const next: Mode = mode.value === 'kids' ? 'parents' : 'kids';
-  targetMode.value = next;
-
-  holding.value = true;
-  holdProgress.value = 0;
-  holdStart = performance.now();
-
-  const tick = () => {
-    const elapsed = performance.now() - holdStart;
-    holdProgress.value = Math.min(1, elapsed / holdMs);
-
-    if (elapsed >= holdMs) {
-      const to = targetMode.value;
-      stopHold();
-      if (to) mode.value = to;
-      return;
-    }
-
-    holdRaf = window.requestAnimationFrame(tick);
-  };
-
-  holdRaf = window.requestAnimationFrame(tick);
-}
-
-function onHoldDown(e: PointerEvent) {
-  if (!e.isPrimary) return;
-
-  if (e.pointerType === 'mouse' && e.button !== 0) return;
-
-  holdPointerId.value = e.pointerId;
-  holdStartX.value = e.clientX;
-  holdStartY.value = e.clientY;
-
+function initialLocale(): Locale {
   try {
-    (e.currentTarget as HTMLElement | null)?.setPointerCapture?.(e.pointerId);
+    if (new URLSearchParams(window.location.search).get('lang') === 'kz') return 'kz';
+    return localStorage.getItem('tilup_locale') === 'kz' ? 'kz' : 'ru';
   } catch {
-    // ignore
-  }
-
-  startHoldToggleMode();
-}
-
-function onHoldMove(e: PointerEvent) {
-  if (!holding.value) return;
-  if (holdPointerId.value === null) return;
-  if (e.pointerId !== holdPointerId.value) return;
-
-  const dx = e.clientX - holdStartX.value;
-  const dy = e.clientY - holdStartY.value;
-  const dist = Math.hypot(dx, dy);
-
-  if (dist > moveCancelPx) {
-    stopHold();
+    return 'ru';
   }
 }
 
-function onHoldUp(e?: PointerEvent) {
-  if (e?.currentTarget && typeof e.pointerId === 'number') {
-    try {
-      (e.currentTarget as HTMLElement | null)?.releasePointerCapture?.(e.pointerId);
-    } catch {
-      // ignore
-    }
-  }
-  stopHold();
-}
+const locale = ref<Locale>(initialLocale());
+const copy = computed(() => APP_COPY[locale.value]);
+const seo = computed(() => SEO_COPY[locale.value]);
 
-function onKeyDownStart(e: KeyboardEvent) {
-  if ((e as any).repeat) return;
-  startHoldToggleMode();
-}
+const siteUrl = (() => {
+  if (typeof window === 'undefined') return '';
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  return url.href;
+})();
 
-function onKeyUpStop() {
-  stopHold();
-}
-
-function setLocale(v: AppLocale) {
-  locale.value = v;
-  persistLocale(v);
-}
-
-const gameAnchor = ref<HTMLElement | null>(null);
-const { visible: gameVisible } = useIntersectionOnce(gameAnchor, '240px');
-
-function scrollToGame() {
-  const el = gameAnchor.value;
-  if (!el) return;
-  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-const GameLoading = defineComponent({
-  name: 'GameLoading',
-  setup() {
-    return () => h('div', { class: 'til-skeleton', 'aria-hidden': 'true' });
-  },
+const localeUrl = computed(() => {
+  if (!siteUrl) return '';
+  const url = new URL(siteUrl);
+  if (locale.value === 'kz') url.searchParams.set('lang', 'kz');
+  return url.href;
 });
 
-const GameError = defineComponent({
-  name: 'GameError',
-  props: {
-    error: { type: Object, required: false },
-    retry: { type: Function as unknown as () => () => void, required: true },
-    attempts: { type: Number, required: true },
-  },
-  setup(props) {
-    return () =>
-      h(
-        'div',
-        {
-          class:
-            'rounded-3xl border border-ink/10 bg-white/80 backdrop-blur px-5 py-6 sm:px-7 sm:py-7',
-          role: 'alert',
-        },
-        [
-          h(
-            'p',
-            { class: 'text-base font-extrabold tracking-tight text-ink' },
-            'Не удалось загрузить игру'
-          ),
-          h(
-            'p',
-            { class: 'mt-2 text-sm leading-relaxed text-ink/70' },
-            'Проверьте интернет и попробуйте ещё раз.'
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              class: 'til-chip-btn til-chip-btn--xs sm:til-chip-btn--xs-reset mt-4',
-              onClick: () => props.retry(),
-            },
-            props.attempts >= 3 ? 'Попробовать снова' : 'Повторить загрузку'
-          ),
+function languageUrl(next: Locale) {
+  if (!siteUrl) return next === 'kz' ? '?lang=kz' : './';
+  const url = new URL(siteUrl);
+  if (next === 'kz') url.searchParams.set('lang', 'kz');
+  return url.href;
+}
+
+const headData = computed(() => {
+  const lang = locale.value === 'kz' ? 'kk' : 'ru';
+  const ogLocale = locale.value === 'kz' ? 'kk_KZ' : 'ru_RU';
+  const previewPath = locale.value === 'kz' ? '/images/speech-cards/goat-kz.png' : '/images/speech-cards/lion.png';
+  const previewImage = siteUrl ? new URL(previewPath, siteUrl).href : '';
+
+  return {
+    htmlAttrs: { lang },
+    title: seo.value.title,
+    meta: [
+      { name: 'description', content: seo.value.description },
+      { name: 'robots', content: 'index, follow, max-image-preview:large' },
+      { name: 'theme-color', content: '#fff7ed' },
+      { property: 'og:type', content: 'website' },
+      { property: 'og:locale', content: ogLocale },
+      { property: 'og:locale:alternate', content: locale.value === 'kz' ? 'ru_RU' : 'kk_KZ' },
+      { property: 'og:site_name', content: 'Til Up' },
+      { property: 'og:title', content: seo.value.title },
+      { property: 'og:description', content: seo.value.description },
+      ...(localeUrl.value ? [{ property: 'og:url', content: localeUrl.value }] : []),
+      ...(previewImage ? [{ property: 'og:image', content: previewImage }] : []),
+      { name: 'twitter:card', content: 'summary_large_image' },
+      { name: 'twitter:title', content: seo.value.title },
+      { name: 'twitter:description', content: seo.value.description },
+      ...(previewImage ? [{ name: 'twitter:image', content: previewImage }] : []),
+    ],
+    link: localeUrl.value
+      ? [
+          { rel: 'canonical', href: localeUrl.value },
+          { rel: 'alternate', hreflang: 'ru', href: languageUrl('ru') },
+          { rel: 'alternate', hreflang: 'kk-KZ', href: languageUrl('kz') },
+          { rel: 'alternate', hreflang: 'x-default', href: languageUrl('ru') },
         ]
-      );
-  },
+      : [],
+    script: localeUrl.value
+      ? [{
+          type: 'application/ld+json',
+          children: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'WebApplication',
+            name: 'Til Up',
+            url: localeUrl.value,
+            description: seo.value.description,
+            applicationCategory: 'EducationalApplication',
+            operatingSystem: 'Any modern browser',
+            inLanguage: lang,
+            isAccessibleForFree: true,
+            offers: { '@type': 'Offer', price: '0', priceCurrency: 'KZT' },
+            audience: { '@type': 'PeopleAudience', suggestedMinAge: 3, suggestedMaxAge: 9 },
+          }),
+        }]
+      : [],
+  };
 });
 
-const SoundPopGame = defineAsyncComponent({
-  loader: () => import('../components/SoundPopGame.vue'),
-  delay: 120,
-  timeout: 15000,
-  loadingComponent: GameLoading,
-  errorComponent: GameError,
-  onError(error, retry, fail, attempts) {
-    if (attempts <= 2) retry();
-    else fail();
-  },
-});
+useHead(headData);
 
-function onBookDiagnostics() {
-  window.open('https://www.whatsapp.com/', '_blank', 'noopener,noreferrer');
+function setLocale(next: Locale) {
+  locale.value = next;
+  try {
+    localStorage.setItem('tilup_locale', next);
+    window.history.replaceState({}, '', languageUrl(next));
+  } catch {
+    // Storage can be unavailable in privacy mode.
+  }
 }
-
-onUnmounted(() => {
-  stopHold();
-});
-
-const modeLabel = computed(() => (isKids.value ? t('app.kidsMode') : t('app.parentsMode')));
-const holdHint = computed(() =>
-  mode.value === 'kids' ? t('app.holdToParents') : t('app.holdToKids')
-);
 </script>
 
 <template>
-  <div class="min-h-screen bg-blue-100 text-ink overflow-x-hidden">
-    <div class="mx-auto max-w-[1120px] px-4 pt-5 pb-24 sm:pt-8">
-      <header class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="til-logo shrink-0" aria-hidden="true">
-            <span class="til-logo-dot" />
-          </div>
-          <div class="min-w-0">
-            <FloatingTitle :text="t('app.brand')" />
-            <p class="text-xs text-ink/60 truncate">{{ t('app.tagline') }}</p>
-          </div>
-        </div>
+  <div class="kids-app">
+    <i class="shape shape-one" aria-hidden="true" />
+    <i class="shape shape-two" aria-hidden="true" />
 
-        <div class="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto min-w-0">
-          <div
-            class="hidden sm:flex items-center gap-1 rounded-2xl bg-white/70 backdrop-blur border border-ink/10 p-1 shrink-0"
-          >
-            <button
-              type="button"
-              class="til-lang"
-              :class="{ 'til-lang--active': locale === 'ru' }"
-              @click="setLocale('ru')"
-              aria-label="Русский"
-            >
-              RU
-            </button>
-            <button
-              type="button"
-              class="til-lang"
-              :class="{ 'til-lang--active': locale === 'en' }"
-              @click="setLocale('en')"
-              aria-label="English"
-            >
-              EN
-            </button>
-            <button
-              type="button"
-              class="til-lang"
-              :class="{ 'til-lang--active': locale === 'kz' }"
-              @click="setLocale('kz')"
-              aria-label="Қазақша"
-            >
-              KZ
-            </button>
-          </div>
+    <header class="topbar">
+      <a class="brand" href="#top" :aria-label="copy.homeAria">
+        <span class="brand-face" aria-hidden="true"><i /><i /><b /></span>
+        <span><strong>Til Up</strong><small>{{ copy.brandHint }}</small></span>
+      </a>
 
-          <div class="sm:hidden w-full flex items-center justify-end">
-            <div class="til-langbar" aria-label="Language switcher">
-              <button
-                type="button"
-                class="til-lang til-lang--xs"
-                :class="{ 'til-lang--active': locale === 'ru' }"
-                @click="setLocale('ru')"
-                aria-label="Русский"
-              >
-                RU
-              </button>
-              <button
-                type="button"
-                class="til-lang til-lang--xs"
-                :class="{ 'til-lang--active': locale === 'en' }"
-                @click="setLocale('en')"
-                aria-label="English"
-              >
-                EN
-              </button>
-              <button
-                type="button"
-                class="til-lang til-lang--xs"
-                :class="{ 'til-lang--active': locale === 'kz' }"
-                @click="setLocale('kz')"
-                aria-label="Қазақша"
-              >
-                KZ
-              </button>
-            </div>
-          </div>
+      <div class="lang-switch" aria-label="Тіл / Язык">
+        <a :href="languageUrl('ru')" :class="{ active: locale === 'ru' }" :aria-current="locale === 'ru' ? 'page' : undefined" @click.prevent="setLocale('ru')">RU</a>
+        <a :href="languageUrl('kz')" :class="{ active: locale === 'kz' }" :aria-current="locale === 'kz' ? 'page' : undefined" @click.prevent="setLocale('kz')">KZ</a>
+      </div>
+    </header>
 
-          <div
-            class="til-mode w-full sm:w-auto"
-            :aria-label="`${t('app.modeLabel')}: ${modeLabel}. ${holdHint}`"
-          >
-            <div class="flex items-center justify-between gap-3">
-              <p class="text-[11px] font-semibold text-ink/55">{{ t('app.modeLabel') }}</p>
-              <p class="text-[11px] font-semibold text-ink/45 truncate">
-                {{ holdHint }}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              class="til-mode-btn"
-              @pointerdown="onHoldDown"
-              @pointermove="onHoldMove"
-              @pointerup="onHoldUp"
-              @pointercancel="onHoldUp"
-              @pointerleave="onHoldUp"
-              @keydown.space.prevent="onKeyDownStart"
-              @keyup.space.prevent="onKeyUpStop"
-              @keydown.enter.prevent="onKeyDownStart"
-              @keyup.enter.prevent="onKeyUpStop"
-            >
-              <span class="til-mode-btn-text">{{ modeLabel }}</span>
-              <span class="til-mode-progress" aria-hidden="true">
-                <span
-                  class="til-mode-progress-bar"
-                  :style="{ width: `${Math.round(holdProgress * 100)}%` }"
-                />
-              </span>
-            </button>
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span aria-hidden="true">●</span> {{ copy.eyebrow }}</p>
+          <h1 id="hero-title">{{ copy.heroLine }}<br /><em>{{ copy.heroAccent }}</em></h1>
+          <p class="hero-text">{{ copy.heroText }}</p>
+          <a class="hero-button" href="#play">{{ copy.start }} <span aria-hidden="true">↓</span></a>
+          <div class="hero-steps" :aria-label="copy.stepsAria">
+            <span v-for="(step, index) in copy.steps" :key="step"><b>{{ index + 1 }}</b> {{ step }}</span>
           </div>
         </div>
-      </header>
 
-      <main class="mt-6 sm:mt-8">
-        <HeroPlayZone @start-play="scrollToGame" />
+        <div class="hero-mascot" :aria-label="copy.mascotAria"><Mascot /></div>
+      </section>
 
-        <section ref="gameAnchor" class="mt-10 sm:mt-14" aria-labelledby="game-title">
-          <div class="mt-6">
-            <SoundPopGame v-if="gameVisible" />
-            <div v-else class="til-skeleton" aria-hidden="true" />
-          </div>
-        </section>
+      <section id="play" class="play-section" aria-labelledby="play-title">
+        <div class="section-heading">
+          <p class="eyebrow"><span aria-hidden="true">●</span> {{ copy.exerciseEyebrow }}</p>
+          <h2 id="play-title">{{ copy.exerciseTitle }}</h2>
+          <p>{{ copy.exerciseText }}</p>
+        </div>
+        <SoundPopGame :locale="locale" />
+      </section>
+    </main>
 
-        <ParentsTrustSection @book-diagnostics="onBookDiagnostics" />
-      </main>
-    </div>
-
-    <SocialDock />
+    <footer>
+      <span aria-hidden="true">★</span>
+      <p><strong>Til Up</strong> {{ copy.footer }}</p>
+      <p>{{ copy.disclaimer }}</p>
+    </footer>
   </div>
 </template>
 
 <style scoped>
-.shadow-soft {
-  box-shadow:
-    0 24px 70px rgba(15, 23, 42, 0.1),
-    0 6px 20px rgba(15, 23, 42, 0.08);
-}
-
-.til-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(126, 200, 255, 0.9), rgba(255, 214, 232, 0.95));
-  border: 1px solid rgba(46, 46, 56, 0.12);
-  box-shadow:
-    0 12px 26px rgba(126, 200, 255, 0.22),
-    0 10px 22px rgba(255, 214, 232, 0.22);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.til-logo-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(46, 46, 56, 0.1);
-}
-
-.til-langbar {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(46, 46, 56, 0.1);
-  backdrop-filter: blur(10px);
-  max-width: 100%;
-}
-
-.til-lang {
-  border-radius: 16px;
-  padding: 8px 10px;
-  min-height: 40px;
-  font-size: 12px;
-  font-weight: 900;
-  color: rgba(46, 46, 56, 0.7);
-  white-space: nowrap;
-}
-
-.til-lang--xs {
-  padding: 7px 9px;
-  min-height: 36px;
-  font-size: 12px;
-}
-
-.til-lang--active {
-  background: rgba(126, 200, 255, 0.2);
-  border: 1px solid rgba(46, 46, 56, 0.1);
-  color: rgba(46, 46, 56, 0.95);
-}
-
-.til-chip-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 20px;
-  padding: 12px 14px;
-  min-height: 48px;
-  font-weight: 900;
-  font-size: 14px;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(46, 46, 56, 0.1);
-  backdrop-filter: blur(10px);
-  transition:
-    transform 140ms ease,
-    box-shadow 140ms ease;
-  max-width: 100%;
-}
-
-.til-chip-btn:hover {
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
-}
-
-.til-chip-btn:active {
-  transform: scale(0.98);
-}
-
-.til-chip-btn--xs {
-  padding: 10px 12px;
-  min-height: 42px;
-  font-size: 13px;
-}
-
-@media (min-width: 640px) {
-  .til-chip-btn--xs-reset {
-    padding: 12px 14px;
-    min-height: 48px;
-    font-size: 14px;
-  }
-}
-
-.til-mode {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.75);
-  border: 1px solid rgba(46, 46, 56, 0.1);
-  backdrop-filter: blur(10px);
-  min-width: 0;
-  max-width: 100%;
-}
-
-@media (max-width: 639px) {
-  .til-mode {
-    width: 100%;
-  }
-}
-
-@media (min-width: 640px) {
-  .til-mode {
-    min-width: 200px;
-  }
-}
-
-.til-mode-btn {
-  position: relative;
-  border-radius: 18px;
-  background: rgba(207, 245, 231, 0.65);
-  border: 1px solid rgba(46, 46, 56, 0.1);
-  min-height: 44px;
-  padding: 10px 12px;
-  overflow: hidden;
-  width: 100%;
-  touch-action: manipulation;
-}
-
-.til-mode-btn-text {
-  position: relative;
-  z-index: 1;
-  font-size: 13px;
-  font-weight: 900;
-  color: rgba(46, 46, 56, 0.92);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.til-mode-progress {
-  position: absolute;
-  inset: 0;
-  opacity: 0.75;
-}
-
-.til-mode-progress-bar {
-  position: absolute;
-  inset: 0;
-  height: 100%;
-  background: linear-gradient(90deg, rgba(126, 200, 255, 0.55), rgba(255, 214, 232, 0.6));
-  width: 0%;
-}
-
-.til-skeleton {
-  height: 520px;
-  border-radius: 28px;
-  background: linear-gradient(
-    90deg,
-    rgba(126, 200, 255, 0.1),
-    rgba(255, 214, 232, 0.12),
-    rgba(126, 200, 255, 0.1)
-  );
-  background-size: 200% 100%;
-  animation: tiltup-shimmer 1.2s ease-in-out infinite;
-}
-
-@keyframes tiltup-shimmer {
-  0% {
-    background-position: 0% 0%;
-  }
-  100% {
-    background-position: 200% 0%;
-  }
-}
+.kids-app{--ink:#25345b;--muted:#687596;position:relative;min-height:100vh;overflow:hidden;color:var(--ink);background:radial-gradient(circle at 8% 5%,rgba(255,225,138,.5),transparent 25rem),radial-gradient(circle at 92% 16%,rgba(181,225,255,.65),transparent 28rem),linear-gradient(180deg,#fffaf1 0%,#f6fbff 52%,#fff8ee 100%)}
+.topbar,.hero,.play-section,footer{position:relative;z-index:2;width:min(1160px,calc(100% - 32px));margin-inline:auto}.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:22px}.brand{display:inline-flex;align-items:center;gap:12px;color:inherit;text-decoration:none}.brand strong,.brand small{display:block}.brand strong{font-size:1.45rem;line-height:1;font-weight:950;letter-spacing:-.04em}.brand small{margin-top:4px;color:var(--muted);font-size:.72rem;font-weight:750}
+.brand-face{position:relative;display:flex;align-items:center;justify-content:center;gap:7px;width:48px;height:48px;border:2px solid rgba(37,52,91,.08);border-radius:18px;background:linear-gradient(145deg,#ffd45e,#ff9f78);box-shadow:0 10px 22px rgba(245,139,102,.22)}.brand-face i{width:5px;height:7px;margin-top:-5px;border-radius:99px;background:var(--ink)}.brand-face b{position:absolute;bottom:11px;width:16px;height:8px;border-bottom:3px solid var(--ink);border-radius:0 0 20px 20px}
+.lang-switch{display:flex;gap:4px;padding:4px;border:1px solid rgba(37,52,91,.09);border-radius:16px;background:rgba(255,255,255,.7);box-shadow:0 8px 22px rgba(55,71,115,.08)}.lang-switch a{display:grid;min-width:43px;min-height:38px;place-items:center;border-radius:12px;color:var(--muted);font-size:.75rem;font-weight:950;text-decoration:none;transition:background .16s ease,transform .16s ease}.lang-switch a:hover{transform:translateY(-1px)}.lang-switch a.active{color:#fff;background:#ff806c;box-shadow:0 6px 14px rgba(255,128,108,.25)}
+.hero{display:grid;grid-template-columns:minmax(0,1.03fr) minmax(350px,.97fr);align-items:center;gap:54px;min-height:650px;padding-block:38px 72px}.eyebrow{display:inline-flex;align-items:center;gap:9px;color:#ef7f69;font-size:.78rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase}.eyebrow span{font-size:.65rem}h1{max-width:720px;margin-top:18px;font-size:clamp(3.15rem,7vw,6.6rem);line-height:.91;font-weight:950;letter-spacing:-.075em}h1 em{color:#ff806c;font-style:normal}.hero-text{max-width:560px;margin-top:25px;color:var(--muted);font-size:clamp(1rem,2vw,1.18rem);line-height:1.65;font-weight:650}
+.hero-button{display:inline-flex;align-items:center;justify-content:center;gap:14px;min-height:58px;margin-top:30px;padding:14px 24px;border:2px solid rgba(37,52,91,.08);border-radius:22px;color:#fff;background:linear-gradient(135deg,#ff8a73,#ff6d75);box-shadow:0 16px 34px rgba(255,109,117,.28);font-weight:900;text-decoration:none;transition:transform .16s ease}.hero-button:hover{transform:translateY(-3px)}.hero-steps{display:flex;flex-wrap:wrap;gap:12px 20px;margin-top:26px;color:var(--muted);font-size:.78rem;font-weight:800}.hero-steps span{display:inline-flex;align-items:center;gap:7px}.hero-steps b{display:grid;width:25px;height:25px;place-items:center;border-radius:9px;background:#fff;box-shadow:0 5px 15px rgba(55,71,115,.1);font-size:.68rem}
+.hero-mascot{position:relative;max-width:560px;padding:40px 20px 10px}.hero-mascot:before{position:absolute;inset:12% 2% 5%;z-index:-1;border-radius:45% 55% 48% 52%;background:linear-gradient(145deg,rgba(206,236,255,.85),rgba(255,222,228,.7));content:'';transform:rotate(-5deg)}
+.play-section{padding-block:70px 90px}.section-heading{max-width:720px;margin:0 auto 30px;text-align:center}.section-heading h2{margin-top:12px;font-size:clamp(2rem,5vw,3.35rem);line-height:1.03;font-weight:950;letter-spacing:-.055em}.section-heading>p:last-child{margin-top:13px;color:var(--muted);font-weight:650}footer{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px 18px;padding-block:25px 34px;border-top:1px solid rgba(37,52,91,.08);color:var(--muted);font-size:.78rem;text-align:center}footer>span{color:#f2b84b}footer p:last-child{opacity:.72}
+.shape{position:absolute;z-index:1;border-radius:999px;opacity:.7}.shape-one{top:190px;left:-50px;width:110px;height:110px;background:#dff3dc}.shape-two{top:480px;right:-65px;width:150px;height:150px;background:#ffe6ab}
+@media(max-width:820px){.hero{grid-template-columns:1fr;gap:18px;padding-top:50px;text-align:center}.hero-copy{display:flex;flex-direction:column;align-items:center;min-width:0;width:100%}.hero-mascot{width:min(100%,520px);margin-inline:auto}}
+@media(max-width:560px){.topbar,.hero,.play-section,footer{width:min(100% - 22px,1160px)}.hero{min-height:auto;padding-top:34px;padding-bottom:46px}h1{width:100%;max-width:100%;font-size:clamp(2.45rem,11.5vw,3.4rem);letter-spacing:-.055em}.hero-text{max-width:100%;font-size:.9rem}.hero-steps{display:grid;grid-template-columns:1fr;justify-items:start;width:max-content;max-width:100%;margin-inline:auto}.hero-mascot{width:100%;padding-inline:0}.play-section{padding-block:56px 68px}}
+@media(prefers-reduced-motion:reduce){.hero-button,.lang-switch a{transition:none}}
 </style>

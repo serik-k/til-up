@@ -354,38 +354,15 @@ watch(motionOff, (off) => {
   }
 });
 
-const appearInitial = computed(() => (motionOff.value ? {} : { opacity: 0, y: 10 }));
-const appearEnter = computed(() =>
-  motionOff.value ? { opacity: 1, y: 0 } : { opacity: 1, y: 0, transition: { duration: 0.5 } }
-);
-
-const floatInitial = computed(() => (motionOff.value ? {} : { y: 0, rotate: 0 }));
-const floatEnter = computed(() =>
-  motionOff.value
-    ? { y: 0, rotate: 0 }
-    : {
-        y: [0, -6, 0],
-        rotate: [0, -1.5, 0, 1.5, 0],
-        transition: {
-          duration: 2.8,
-          repeat: Infinity,
-          repeatType: 'mirror' as const,
-          ease: 'easeInOut',
-        },
-      }
-);
 </script>
 
 <template>
   <div
     ref="rootRef"
-    class="relative mx-auto max-w-[420px] select-none"
-    v-motion
-    :initial="appearInitial"
-    :enter="appearEnter"
+    class="til-appear relative mx-auto max-w-[420px] select-none"
     :data-motion-off="motionOff ? '1' : '0'"
   >
-    <div class="relative" v-motion :initial="floatInitial" :enter="floatEnter">
+    <div class="til-float relative">
       <div
         class="til-tilt"
         :class="{
@@ -559,23 +536,33 @@ const floatEnter = computed(() =>
         </svg>
       </div>
 
-      <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
-        <span class="til-chip bg-blue-100">молодец</span>
-        <span class="til-chip bg-pink-100">подсказки рядом</span>
-        <span class="til-chip bg-mint-100">10–15 минут в день</span>
-      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.til-chip {
-  border-radius: 999px;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 800;
-  color: rgba(46, 46, 56, 0.75);
-  border: 1px solid rgba(46, 46, 56, 0.1);
+.til-appear {
+  animation: mascot-appear 500ms ease-out both;
+}
+
+.til-float {
+  animation: mascot-float 2.8s ease-in-out 500ms infinite;
+}
+
+[data-motion-off='1'].til-appear,
+[data-motion-off='1'] .til-float {
+  animation: none;
+}
+
+@keyframes mascot-appear {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes mascot-float {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  25% { transform: translateY(-6px) rotate(-1.5deg); }
+  75% { transform: translateY(-6px) rotate(1.5deg); }
 }
 
 /* ========== tilt wrapper ========== */

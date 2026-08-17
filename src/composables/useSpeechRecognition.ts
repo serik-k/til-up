@@ -125,6 +125,8 @@ async function warmupMicrophone(): Promise<void> {
 
   try {
     _micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _micStream.getTracks().forEach((track) => track.stop());
+    _micStream = null;
   } catch {
     // permission denied or no mic — will be handled by SpeechRecognition itself
   }
@@ -139,6 +141,7 @@ function releaseMicStream() {
     }
     _micStream = null;
   }
+  _micWarmupDone = false;
 }
 
 function nowMs(): number {
@@ -497,6 +500,7 @@ export function useSpeechRecognition(opts: {
     }
 
     state.value = state.value === "unsupported" ? "unsupported" : "idle";
+    releaseMicStream();
   }
 
   function restartForLangChange() {

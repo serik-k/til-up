@@ -1,1674 +1,244 @@
 <script setup lang="ts">
-import {
-  computed,
-  nextTick,
-  onMounted,
-  onUnmounted,
-  reactive,
-  ref,
-  shallowRef,
-  triggerRef,
-  watch,
-} from "vue";
-import { useI18n } from "vue-i18n";
-import type {
-  Bubble,
-  BubbleRemoveReason,
-  GameMode,
-  Level,
-  Particle,
-  Sound,
-} from "../types/soundPop";
-import { useSpeechRecognition } from "../composables/useSpeechRecognition";
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { CARD_SETS, GAME_COPY, type Locale, type SoundKey } from '../content';
+import { useSpeechRecognition } from '../composables/useSpeechRecognition';
 
-/** ===== i18n ===== */
-const { t, locale } = useI18n();
+const props = defineProps<{ locale: Locale }>();
 
-/** ===== layout ===== */
-const containerRef = ref<HTMLElement | null>(null);
-const width = ref(0);
-const height = ref(0);
+type Phase = 'ready' | 'playing' | 'celebrating' | 'complete';
 
-const BUBBLE_SIZE = 80;
-const BUBBLE_R = BUBBLE_SIZE / 2;
+const goal = 5;
+const phase = ref<Phase>('ready');
+const selectedSound = ref<SoundKey>('L');
+const progress = ref(0);
+const cardRound = ref(0);
+const feedback = ref('');
+const actionLocked = ref(false);
+let celebrationTimer: ReturnType<typeof setTimeout> | null = null;
+let lastVoiceMatchAt = 0;
 
-const DEFAULT_SOUNDS = ["R", "L", "SH"] as const;
+const copy = computed(() => GAME_COPY[props.locale]);
+const cards = computed(() => CARD_SETS[props.locale]);
+const activeCard = computed(() => cards.value[selectedSound.value]);
+const speechLang = computed(() => (props.locale === 'kz' ? 'kk-KZ' : 'ru-RU'));
 
-const settings = reactive({
-  mode: "target" as GameMode,
-  targetSound: "R" as Sound,
-  selectedSounds: [...DEFAULT_SOUNDS] as Sound[],
-  level: 1 as Level,
-  roundSeconds: 45,
-});
-
-type GameState = "idle" | "running" | "paused";
-const gameState = ref<GameState>("idle");
-
-const isRunning = computed(() => gameState.value === "running");
-const isPaused = computed(() => gameState.value === "paused");
-const isIdle = computed(() => gameState.value === "idle");
-
-const timeLeft = ref(settings.roundSeconds);
-const score = ref(0);
-const rewardText = ref<string>("");
-
-/** ===== i18n helpers ===== */
-const speechLang = computed(() => {
-  const l = String(locale.value || "").toLowerCase();
-  if (l.startsWith("kk")) return "kk-KZ";
-  if (l.startsWith("en")) return "en-US";
-  return "ru-RU";
-});
-
-const localeKey = computed<"ru" | "kk" | "en">(() => {
-  const l = speechLang.value.toLowerCase();
-  if (l.startsWith("kk")) return "kk";
-  if (l.startsWith("en")) return "en";
-  return "ru";
-});
-
-const SOUND_UI_LABEL: Record<"ru" | "kk" | "en", Record<Sound, string>> = {
-  ru: { R: "Р", L: "Л", SH: "Ш" },
-  kk: { R: "Р", L: "Л", SH: "Ш" },
-  en: { R: "R", L: "L", SH: "SH" },
-};
-
-function soundLabel(s: Sound) {
-  return SOUND_UI_LABEL[localeKey.value][s] ?? s;
-}
-
-/** ===== entities ===== */
-const bubbles = shallowRef<Bubble[]>([]);
-const particles = shallowRef<Particle[]>([]);
-
-const MAX_BUBBLES = 12;
-
-let rafId: number | null = null;
-let lastTs = 0;
-let spawnAcc = 0;
-let aliveBubblesCount = 0;
-
-let timeLeftMs = settings.roundSeconds * 1000;
-let lastUiTimeUpdateTs = 0;
-
-let dirtyBubbles = false;
-let dirtyParticles = false;
-
-function markDirtyB() {
-  dirtyBubbles = true;
-}
-function markDirtyP() {
-  dirtyParticles = true;
-}
-function commitFrame() {
-  if (dirtyBubbles) {
-    dirtyBubbles = false;
-    triggerRef(bubbles);
-  }
-  if (dirtyParticles) {
-    dirtyParticles = false;
-    triggerRef(particles);
-  }
-}
-
-let frameTs: number | null = null;
-function nowTs() {
-  return frameTs ?? performance.now();
-}
-function clamp(v: number, a: number, b: number) {
-  return Math.max(a, Math.min(b, v));
-}
-
-/** ===== voice recognition (Web Speech API) ===== */
 const speech = useSpeechRecognition({
   lang: speechLang,
   autoRestart: true,
   continuous: true,
   interimResults: true,
   maxAlternatives: 1,
-  onFinal: (text) => handleSpeechText(text, true),
-  onInterim: (text) => handleSpeechText(text, false),
+  onFinal: (text) => handleSpeech(text),
+  onInterim: (text) => handleSpeech(text),
 });
 
-const speechStatusText = computed(() => {
-  const st = String(speech.state.value || "idle");
-  return t(`soundpop.mic.state.${st}`);
+const statusText = computed(() => {
+  if (phase.value === 'complete') return copy.value.complete;
+  if (phase.value === 'celebrating') return copy.value.heard;
+  if (phase.value === 'ready') return copy.value.ready;
+  return copy.value.namePicture;
 });
 
-const speechErrorText = computed(() => {
-  const code = String(speech.errorMessage.value || "").trim();
-  if (!code) return "";
-
-  const key = `soundpop.mic.errors.${code}`;
-  const fallback = t("soundpop.mic.errors.speech_error");
-  const msg = t(key) as unknown as string;
-
-  if (!msg || msg === key) return fallback || code;
-  return msg;
+const micText = computed(() => {
+  if (speech.state.value === 'unsupported') return copy.value.micUnsupported;
+  if (speech.state.value === 'listening') return copy.value.micListening;
+  if (speech.state.value === 'starting') return copy.value.micStarting;
+  if (speech.state.value === 'error') return copy.value.micError;
+  return copy.value.micIdle;
 });
 
-const isInApp = computed(() => Boolean((speech as any).isInApp));
-
-const inAppHintText = computed(() => {
-  if (!isInApp.value) return "";
-  return t("soundpop.mic.errors.isInApp");
-});
-
-/** ===== speech pop utils ===== */
-function normalizeMatch(s: string): string {
-  const v = String(s || "")
-    .toLowerCase()
-    .trim()
-    .replace(/ё/g, "е");
-  return v.replace(/[^a-zа-яәғқңөұүһі]+/giu, "");
+function normalizedWords(value: string) {
+  return String(value || '')
+    .toLocaleLowerCase(props.locale === 'kz' ? 'kk-KZ' : 'ru-RU')
+    .replace(/ё/g, 'е')
+    .match(/[\p{L}]+/gu) ?? [];
 }
 
-function extractTokensFromTranscript(text: string): string[] {
-  const v = String(text || "")
-    .toLowerCase()
-    .replace(/ё/g, "е");
-  const tokens = v.match(/[a-zа-яәғқңөұүһі]+/giu) || [];
-  const out: string[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const n = normalizeMatch(tokens[i]!);
-    if (n) out.push(n);
-  }
-  return out;
+function handleSpeech(text: string) {
+  if (phase.value !== 'playing' || actionLocked.value) return;
+  const expected = normalizedWords(activeCard.value.name)[0];
+  if (!expected || !normalizedWords(text).includes(expected)) return;
+
+  const now = Date.now();
+  if (now - lastVoiceMatchAt < 900) return;
+  lastVoiceMatchAt = now;
+  completeTurn();
 }
 
-/** ===== speech pop tuning ===== */
-const INTERIM_STABLE_HITS = 1;
-const INTERIM_COOLDOWN_MS = 70;
-const FINAL_SUPPRESS_MS = 250;
-
-const MAX_POP_PER_TOKEN = MAX_BUBBLES;
-const MAX_POP_PER_PHRASE = MAX_BUBBLES;
-
-let lastInterimKey = "";
-let lastInterimCount = 0;
-
-const lastTokenFireAt = new Map<string, number>();
-const LAST_TOKEN_FIRE_CAP = 220;
-
-function nowPerf() {
-  return performance.now();
+function clearCelebrationTimer() {
+  if (celebrationTimer) clearTimeout(celebrationTimer);
+  celebrationTimer = null;
 }
 
-function canAttemptToken(token: string, isFinal: boolean, now: number) {
-  const prev = lastTokenFireAt.get(token) ?? 0;
-  if (isFinal) {
-    if (now - prev < FINAL_SUPPRESS_MS) return false;
-  } else {
-    if (now - prev < INTERIM_COOLDOWN_MS) return false;
-  }
-  return true;
+function selectSound(sound: SoundKey) {
+  if (phase.value === 'celebrating') return;
+  selectedSound.value = sound;
+  stopSession();
 }
 
-function markTokenFired(token: string, now: number) {
-  lastTokenFireAt.set(token, now);
-  if (lastTokenFireAt.size > LAST_TOKEN_FIRE_CAP) {
-    lastTokenFireAt.clear();
-  }
+async function startSession() {
+  clearCelebrationTimer();
+  progress.value = 0;
+  cardRound.value += 1;
+  feedback.value = '';
+  actionLocked.value = false;
+  phase.value = 'playing';
+  if (speech.supported()) await speech.start();
 }
 
-/** ===== layout cache (perf: avoid frequent getBoundingClientRect) ===== */
-let layoutSafeW = BUBBLE_SIZE;
-let layoutCacheTs = 0;
-
-function refreshLayoutCache(force = false) {
-  const el = containerRef.value;
-  if (!el) return;
-
-  const now = performance.now();
-  if (!force && now - layoutCacheTs < 120) return;
-
-  const rect = el.getBoundingClientRect();
-  layoutSafeW = width.value || rect.width || BUBBLE_SIZE;
-  layoutCacheTs = now;
+function stopSession() {
+  clearCelebrationTimer();
+  speech.stop();
+  phase.value = 'ready';
+  progress.value = 0;
+  feedback.value = '';
+  actionLocked.value = false;
 }
 
-function popAllMatchingWordWithLayout(
-  normWord: string,
-  safeW: number,
-  maxCount: number,
-) {
-  if (!isRunning.value) return 0;
-  if (interactionsLocked.value) return 0;
+function completeTurn() {
+  if (phase.value !== 'playing' || actionLocked.value) return;
+  actionLocked.value = true;
+  phase.value = 'celebrating';
+  feedback.value = copy.value.repeat;
+  progress.value += 1;
 
-  const limit = Math.min(maxCount, MAX_POP_PER_TOKEN);
-  if (limit <= 0) return 0;
-
-  const matches: Bubble[] = [];
-  for (let i = 0; i < bubbles.value.length; i++) {
-    const b = bubbles.value[i]!;
-    if (!b.alive) continue;
-    if (b.popped) continue;
-    if (normalizeMatch(b.word) === normWord) matches.push(b);
-  }
-
-  if (!matches.length) return 0;
-
-  matches.sort((a, b) => b.y - a.y);
-
-  let popped = 0;
-  const maxX = Math.max(0, safeW - BUBBLE_SIZE);
-  for (let i = 0; i < matches.length && popped < limit; i++) {
-    const b = matches[i]!;
-    const px = b.x * maxX + BUBBLE_R;
-    const py = b.y + BUBBLE_R;
-    popBubble(b, px, py);
-    popped += 1;
-  }
-
-  return popped;
-}
-
-function handleSpeechText(text: string, isFinal: boolean) {
-  if (!isRunning.value) return;
-  if (interactionsLocked.value) return;
-
-  const tokens = extractTokensFromTranscript(text);
-  if (!tokens.length) return;
-
-  const now = nowPerf();
-
-  const lastToken = tokens[tokens.length - 1]!;
-  if (!lastToken) return;
-
-  if (!isFinal) {
-    if (lastToken === lastInterimKey) lastInterimCount += 1;
-    else {
-      lastInterimKey = lastToken;
-      lastInterimCount = 1;
+  clearCelebrationTimer();
+  celebrationTimer = setTimeout(() => {
+    if (progress.value >= goal) {
+      phase.value = 'complete';
+      speech.stop();
+    } else {
+      cardRound.value += 1;
+      phase.value = 'playing';
     }
-    if (lastInterimCount < INTERIM_STABLE_HITS) return;
-  }
+    feedback.value = '';
+    actionLocked.value = false;
+  }, 920);
+}
 
-  refreshLayoutCache(false);
-  const safeW = layoutSafeW;
+function speakExample() {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const phrase = new SpeechSynthesisUtterance(activeCard.value.name);
+  phrase.lang = speechLang.value;
+  phrase.rate = 0.78;
+  phrase.pitch = 1.08;
+  window.speechSynthesis.speak(phrase);
+}
 
-  const tryPopToken = (token: string, remaining: number) => {
-    if (!token) return { popped: 0, remaining };
-    if (remaining <= 0) return { popped: 0, remaining };
-    if (!canAttemptToken(token, isFinal, now)) return { popped: 0, remaining };
-
-    const popped = popAllMatchingWordWithLayout(token, safeW, remaining);
-    if (popped > 0) {
-      markTokenFired(token, now);
-      lastInterimKey = "";
-      lastInterimCount = 0;
-      return { popped, remaining: remaining - popped };
-    }
-
-    return { popped: 0, remaining };
+function burstStyle(index: number) {
+  return {
+    '--angle': `${index * 30}deg`,
+    '--distance': `${118 + (index % 3) * 22}px`,
+    '--delay': `${(index % 4) * 18}ms`,
+    '--particle-color': ['#ff806c', '#ffd258', '#55c9b9', '#63b4ed'][index % 4],
   };
-
-  if (settings.mode === "target") {
-    let r = tryPopToken(lastToken, MAX_BUBBLES);
-    if (r.popped > 0) return;
-
-    for (let i = tokens.length - 1; i >= 0; i--) {
-      if (i === tokens.length - 1) continue;
-      const tkn = tokens[i]!;
-      r = tryPopToken(tkn, MAX_BUBBLES);
-      if (r.popped > 0) break;
-    }
-    return;
-  }
-
-  let remaining = MAX_POP_PER_PHRASE;
-  const seen = new Set<string>();
-
-  for (let i = tokens.length - 1; i >= 0; i--) {
-    if (remaining <= 0) break;
-
-    const tkn = tokens[i]!;
-    if (!tkn) continue;
-    if (seen.has(tkn)) continue;
-    seen.add(tkn);
-
-    const res = tryPopToken(tkn, remaining);
-    remaining = res.remaining;
-  }
 }
 
-/** ===== words ===== */
-const WORDS: Record<"ru" | "kk" | "en", Record<Sound, string[]>> = {
-  ru: {
-    R: ["робот", "ракета", "рыцарь", "радуга", "радар"],
-    L: ["лев", "лимонад", "луна", "лиса", "лабиринт"],
-    SH: ["шахматы", "шоколад", "шлем", "шарик", "шутка"],
-  },
-  kk: {
-    R: ["робот", "ракета", "раушан", "радио", "рыцарь"],
-    L: ["лақ", "лимонад", "луна", "лимон", "локатор"],
-    SH: ["шар", "шана", "шоколад", "шай", "шопан"],
-  },
-  en: {
-    R: ["robot", "rocket", "rainbow", "raccoon", "roller"],
-    L: ["lion", "lego", "lollipop", "lamp", "lizard"],
-    SH: ["shark", "ship", "shoe", "sheep", "shell"],
-  },
-};
-
-function pickWordForSound(s: Sound): string {
-  const pack = WORDS[localeKey.value];
-  const arr = pack[s] || [];
-  return String(arr[(Math.random() * arr.length) | 0] || soundLabel(s));
-}
-
-/** ===== UI computed ===== */
-const timeLeftCeil = computed(() => Math.ceil(timeLeft.value));
-
-const primaryActionText = computed(() =>
-  isIdle.value
-    ? t("soundpop.actions.start")
-    : isRunning.value
-      ? t("soundpop.actions.pause")
-      : t("soundpop.actions.resume"),
-);
-const primaryActionAria = computed(() =>
-  isIdle.value
-    ? t("soundpop.aria.start")
-    : isRunning.value
-      ? t("soundpop.aria.pause")
-      : t("soundpop.aria.resume"),
-);
-
-function onPrimaryActionClick() {
-  if (isIdle.value) startRound();
-  else if (isRunning.value) pauseRound();
-  else resumeRound();
-}
-
-/** ids */
-let idSeq = 0;
-function uid(prefix: string) {
-  idSeq += 1;
-  return `${prefix}_${idSeq}`;
-}
-
-/** ===== resize (batched + fallback) ===== */
-let ro: ResizeObserver | null = null;
-let roRaf: number | null = null;
-let pendingW = 0;
-let pendingH = 0;
-
-let winResizeHandler: (() => void) | null = null;
-
-function updateBubbleTransformWithW(b: Bubble, safeW: number) {
-  const maxX = Math.max(0, safeW - BUBBLE_SIZE);
-  const left = (b.x * maxX + 0.5) | 0;
-  const top = (b.y + 0.5) | 0;
-  b.tf = `transform: translate3d(${left}px, ${top}px, 0);`;
-}
-
-function updateAllBubbleTransforms() {
-  if (!bubbles.value.length) return;
-  const safeW = width.value > 0 ? width.value : BUBBLE_SIZE;
-
-  for (let i = 0; i < bubbles.value.length; i++) {
-    updateBubbleTransformWithW(bubbles.value[i]!, safeW);
-  }
-  markDirtyB();
-
-  if (!isRunning.value) {
-    dirtyBubbles = false;
-    triggerRef(bubbles);
-  }
-}
-
-function flushSize() {
-  width.value = pendingW;
-  height.value = pendingH;
-  roRaf = null;
-
-  refreshLayoutCache(true);
-  updateAllBubbleTransforms();
-}
-
-function attachResizeObservers() {
-  const el = containerRef.value;
-  if (!el) return;
-
-  const r = el.getBoundingClientRect();
-  pendingW = r.width;
-  pendingH = r.height;
-  flushSize();
-
-  if (typeof ResizeObserver !== "undefined") {
-    ro = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const cr = entry.contentRect;
-      pendingW = cr.width;
-      pendingH = cr.height;
-      if (roRaf === null) roRaf = requestAnimationFrame(flushSize);
-    });
-
-    ro.observe(el);
-    return;
-  }
-
-  winResizeHandler = () => {
-    const rr = el.getBoundingClientRect();
-    pendingW = rr.width;
-    pendingH = rr.height;
-    flushSize();
-  };
-  window.addEventListener("resize", winResizeHandler, { passive: true });
-}
-
-/** ===== pools ===== */
-const particlePool: Particle[] = [];
-const bubblePool: Bubble[] = [];
-
-function getParticle(): Particle {
-  return (
-    particlePool.pop() ?? {
-      id: uid("p"),
-      x: 0,
-      y: 0,
-      vx: 0,
-      vy: 0,
-      life: 0,
-      born: 0,
-      alpha: 1,
-      style: "",
-    }
-  );
-}
-function recycleParticle(p: Particle) {
-  if (particlePool.length < 800) particlePool.push(p);
-}
-
-function getBubble(): Bubble {
-  return (
-    bubblePool.pop() ?? {
-      id: uid("b"),
-      x: 0,
-      y: 0,
-      vy: 0,
-      letter: "R",
-      word: "",
-      alive: true,
-      popped: false,
-      removeReason: null,
-      removeAt: null,
-      tf: "",
-    }
-  );
-}
-
-function recycleBubble(b: Bubble) {
-  if (bubblePool.length < 200) bubblePool.push(b);
-}
-
-/** ===== helpers ===== */
-function containerPointFromClient(clientX: number, clientY: number) {
-  const el = containerRef.value;
-  if (!el) return { x: clientX, y: clientY };
-  const rect = el.getBoundingClientRect();
-  return { x: clientX - rect.left, y: clientY - rect.top };
-}
-
-function updateParticleStyle(p: Particle) {
-  const x = (p.x + 0.5) | 0;
-  const y = (p.y + 0.5) | 0;
-  const a = clamp(p.alpha, 0, 1);
-  p.style = `transform: translate3d(${x}px, ${y}px, 0); opacity: ${a};`;
-}
-
-/** ===== onboarding ===== */
-const onboardingStep = ref(-1);
-const onboardingOpen = computed(() => onboardingStep.value >= 0);
-const interactionsLocked = computed(() => onboardingOpen.value);
-
-const onboardingModalRef = ref<HTMLElement | null>(null);
-const onboardingPausedGame = ref(false);
-
-function focusOnboarding() {
-  onboardingModalRef.value?.focus();
-}
-
-function openOnboardingIfNeeded() {
-  if (onboardingStep.value < 0) onboardingStep.value = 0;
-
-  nextTick(() => focusOnboarding());
-
-  onboardingPausedGame.value = false;
-  if (isRunning.value) {
-    onboardingPausedGame.value = true;
-    pauseRound();
-  }
-}
-
-function nextOnboarding() {
-  if (onboardingStep.value < 2) {
-    onboardingStep.value += 1;
-    nextTick(() => focusOnboarding());
-  } else {
-    closeOnboarding();
-  }
-}
-
-function closeOnboarding() {
-  const shouldResume = onboardingPausedGame.value;
-  onboardingStep.value = -1;
-
-  nextTick(() => {
-    if (shouldResume && isPaused.value && onboardingStep.value < 0) {
-      onboardingPausedGame.value = false;
-      resumeRound();
-    } else {
-      onboardingPausedGame.value = false;
-    }
-  });
-}
-
-function skipOnboarding() {
-  closeOnboarding();
-}
-
-function handleOnboardingKeydown(e: KeyboardEvent) {
-  if (!onboardingOpen.value) return;
-  if (e.key !== "Escape") return;
-  e.preventDefault();
-  closeOnboarding();
-}
-
-watch(
-  onboardingOpen,
-  (open) => {
-    if (open) document.addEventListener("keydown", handleOnboardingKeydown);
-    else document.removeEventListener("keydown", handleOnboardingKeydown);
-  },
-  { immediate: true },
-);
-
-/** ===== gameplay spawn ===== */
-function spawnPool(): Sound[] {
-  if (settings.mode === "target") return [settings.targetSound];
-  return settings.selectedSounds.length
-    ? settings.selectedSounds
-    : [...DEFAULT_SOUNDS];
-}
-
-function pickSpawnItem(): { sound: Sound; word: string } {
-  const pool = spawnPool();
-  const s = pool[(Math.random() * pool.length) | 0] as Sound;
-  return { sound: s, word: pickWordForSound(s) };
-}
-
-function computeDifficultyMultiplier(): number {
-  if (settings.level === 1) return 1.0;
-  if (settings.level === 2) return 1.18;
-  return 1.35;
-}
-
-function spawnBubble(m: number) {
-  if (!isRunning.value) return;
-  if (!width.value || !height.value) return;
-  if (aliveBubblesCount >= MAX_BUBBLES) return;
-
-  const { sound, word } = pickSpawnItem();
-
-  const b = getBubble();
-  b.x = Math.random();
-  b.y = -BUBBLE_SIZE;
-  b.vy = (70 + Math.random() * 40) * m;
-
-  b.letter = sound;
-  b.word = word;
-
-  b.alive = true;
-  b.popped = false;
-  b.removeReason = null;
-  b.removeAt = null;
-
-  updateBubbleTransformWithW(b, width.value || BUBBLE_SIZE);
-
-  bubbles.value.push(b);
-  aliveBubblesCount += 1;
-
-  markDirtyB();
-}
-
-const KEEP_HIT_MS = 220;
-const KEEP_MISS_MS = 50;
-
-function removeBubble(
-  b: Bubble,
-  now: number,
-  keepMs: number,
-  reason: BubbleRemoveReason,
-) {
-  if (b.popped) return;
-
-  b.popped = true;
-  b.removeReason = reason;
-
-  if (b.alive) {
-    b.alive = false;
-    aliveBubblesCount = aliveBubblesCount > 0 ? aliveBubblesCount - 1 : 0;
-  }
-
-  b.removeAt = now + keepMs;
-  markDirtyB();
-}
-
-function sweepDeadInPlace(now: number) {
-  const arrB = bubbles.value;
-  const beforeB = arrB.length;
-  let wB = 0;
-
-  for (let i = 0; i < arrB.length; i++) {
-    const b = arrB[i]!;
-    if (b.alive) {
-      arrB[wB++] = b;
-      continue;
-    }
-    if (b.removeAt !== null && now < b.removeAt) {
-      arrB[wB++] = b;
-      continue;
-    }
-    recycleBubble(b);
-  }
-  arrB.length = wB;
-  if (wB !== beforeB) markDirtyB();
-
-  const arrP = particles.value;
-  const beforeP = arrP.length;
-  let wP = 0;
-
-  for (let i = 0; i < arrP.length; i++) {
-    const p = arrP[i]!;
-    if (now - p.born < p.life) {
-      arrP[wP++] = p;
-    } else {
-      recycleParticle(p);
-    }
-  }
-  arrP.length = wP;
-  if (wP !== beforeP) markDirtyP();
-}
-
-function clearAllEntitiesToPool() {
-  for (let i = 0; i < bubbles.value.length; i++)
-    recycleBubble(bubbles.value[i]!);
-  bubbles.value.length = 0;
-
-  for (let i = 0; i < particles.value.length; i++)
-    recycleParticle(particles.value[i]!);
-  particles.value.length = 0;
-
-  aliveBubblesCount = 0;
-
-  dirtyBubbles = false;
-  dirtyParticles = false;
-  triggerRef(bubbles);
-  triggerRef(particles);
-}
-
-function addParticles(localX: number, localY: number, now: number) {
-  const count = 14;
-  for (let i = 0; i < count; i++) {
-    const ang = Math.random() * Math.PI * 2;
-    const sp = 80 + Math.random() * 160;
-
-    const p = getParticle();
-    p.x = localX;
-    p.y = localY;
-    p.vx = Math.cos(ang) * sp;
-    p.vy = Math.sin(ang) * sp - 60;
-    p.life = 650 + Math.random() * 350;
-    p.born = now;
-    p.alpha = 1;
-    updateParticleStyle(p);
-
-    particles.value.push(p);
-  }
-
-  markDirtyP();
-}
-
-function popBubble(b: Bubble, localX: number, localY: number) {
-  if (!isRunning.value) return;
-  if (interactionsLocked.value) return;
-  if (b.popped) return;
-
-  const now = nowTs();
-  removeBubble(b, now, KEEP_HIT_MS, "hit");
-
-  score.value += 1;
-  rewardText.value = "";
-
-  addParticles(localX, localY, now);
-}
-
-async function ensureSizeBeforeLoop() {
-  await nextTick();
-  const el = containerRef.value;
-  if (!el) return;
-
-  if (!width.value || !height.value) {
-    const r = el.getBoundingClientRect();
-    width.value = r.width;
-    height.value = r.height;
-  }
-
-  refreshLayoutCache(true);
-}
-
-function resetRoundState() {
-  rewardText.value = "";
-  score.value = 0;
-
-  timeLeftMs = settings.roundSeconds * 1000;
-  timeLeft.value = settings.roundSeconds;
-  lastUiTimeUpdateTs = 0;
-
-  clearAllEntitiesToPool();
-
-  spawnAcc = 0;
-  lastTs = 0;
-
-  lastInterimKey = "";
-  lastInterimCount = 0;
-  lastTokenFireAt.clear();
-
-  dirtyBubbles = false;
-  dirtyParticles = false;
-}
-
-async function startRound() {
-  if (isRunning.value || isPaused.value) return;
-  if (onboardingOpen.value) return;
-
-  resetRoundState();
-  gameState.value = "running";
-
-  if (speech.supported()) speech.start();
-
-  await ensureSizeBeforeLoop();
-
-  frameTs = null;
-  rafId = requestAnimationFrame(loop);
-}
-
-function pauseRound() {
-  if (!isRunning.value) return;
-
-  gameState.value = "paused";
-  frameTs = null;
-
-  speech.stop();
-
-  if (rafId !== null) {
-    cancelAnimationFrame(rafId);
-    rafId = null;
-  }
-}
-
-function resumeRound() {
-  if (!isPaused.value) return;
-  if (onboardingOpen.value) return;
-
-  gameState.value = "running";
-  lastTs = 0;
-  frameTs = null;
-
-  refreshLayoutCache(true);
-
-  if (speech.supported()) speech.start();
-
-  rafId = requestAnimationFrame(loop);
-}
-
-function stopRound(showReward: boolean) {
-  if (isIdle.value) return;
-
-  gameState.value = "idle";
-  frameTs = null;
-
-  speech.stop();
-
-  if (rafId !== null) {
-    cancelAnimationFrame(rafId);
-    rafId = null;
-  }
-
-  clearAllEntitiesToPool();
-
-  if (showReward) {
-    rewardText.value =
-      score.value >= 8
-        ? t("soundpop.rewards.super")
-        : score.value >= 4
-          ? t("soundpop.rewards.cool")
-          : t("soundpop.rewards.good");
-  } else {
-    rewardText.value = "";
-    score.value = 0;
-
-    timeLeftMs = settings.roundSeconds * 1000;
-    timeLeft.value = settings.roundSeconds;
-    lastUiTimeUpdateTs = 0;
-
-    spawnAcc = 0;
-    lastTs = 0;
-
-    lastInterimKey = "";
-    lastInterimCount = 0;
-    lastTokenFireAt.clear();
-  }
-}
-
-function loop(ts: number) {
-  if (!isRunning.value) return;
-
-  frameTs = ts;
-
-  if (lastTs === 0) lastTs = ts;
-
-  const dtRaw = Math.max(0, (ts - lastTs) / 1000);
-  const dtMotion = Math.min(0.05, Math.max(0.001, dtRaw));
-  lastTs = ts;
-
-  timeLeftMs = Math.max(0, timeLeftMs - dtRaw * 1000);
-
-  if (lastUiTimeUpdateTs === 0 || ts - lastUiTimeUpdateTs >= 100) {
-    lastUiTimeUpdateTs = ts;
-    timeLeft.value = Math.max(0, timeLeftMs / 1000);
-  }
-
-  if (timeLeftMs <= 0) {
-    timeLeft.value = 0;
-    stopRound(true);
-    return;
-  }
-
-  const now = ts;
-
-  const m = computeDifficultyMultiplier();
-  const baseSpawn = 0.85 / m;
-
-  spawnAcc += dtMotion;
-  while (spawnAcc >= baseSpawn) {
-    spawnAcc -= baseSpawn;
-    spawnBubble(m);
-  }
-
-  const safeW = width.value > 0 ? width.value : BUBBLE_SIZE;
-  let touchedB = false;
-
-  for (let i = 0; i < bubbles.value.length; i++) {
-    const b = bubbles.value[i]!;
-    if (!b.alive) continue;
-
-    b.y += b.vy * dtMotion;
-
-    if (b.y > height.value + BUBBLE_SIZE) {
-      removeBubble(b, now, KEEP_MISS_MS, "miss");
-      touchedB = true;
-    } else {
-      updateBubbleTransformWithW(b, safeW);
-      touchedB = true;
-    }
-  }
-  if (touchedB) markDirtyB();
-
-  if (particles.value.length) {
-    let touchedP = false;
-
-    for (let i = 0; i < particles.value.length; i++) {
-      const p = particles.value[i]!;
-      const age = now - p.born;
-
-      p.x += p.vx * dtMotion;
-      p.y += p.vy * dtMotion;
-      p.vy += 420 * dtMotion;
-
-      const tLife = clamp(age / p.life, 0, 1);
-      p.alpha = 1 - tLife;
-      updateParticleStyle(p);
-
-      touchedP = true;
-    }
-
-    if (touchedP) markDirtyP();
-  }
-
-  if (
-    ts % 120 < 16 ||
-    bubbles.value.length > 64 ||
-    particles.value.length > 512
-  ) {
-    sweepDeadInPlace(now);
-  }
-
-  commitFrame();
-  rafId = requestAnimationFrame(loop);
-}
-
-function onBubblePointerDown(b: Bubble, e: PointerEvent) {
-  if (!isRunning.value) return;
-  if (interactionsLocked.value) return;
-  if (b.popped) return;
-
-  e.preventDefault();
-  e.stopPropagation();
-
-  const pt = containerPointFromClient(e.clientX, e.clientY);
-  popBubble(b, pt.x, pt.y);
-}
-
-function onBubbleKeydown(b: Bubble, e: KeyboardEvent) {
-  if (!isRunning.value) return;
-  if (interactionsLocked.value) return;
-  if (b.popped) return;
-
-  if (e.key !== "Enter" && e.key !== " ") return;
-
-  e.preventDefault();
-  e.stopPropagation();
-
-  const safeW = width.value || layoutSafeW || BUBBLE_SIZE;
-  const maxX = Math.max(0, safeW - BUBBLE_SIZE);
-  const px = b.x * maxX + BUBBLE_R;
-  const py = b.y + BUBBLE_R;
-  popBubble(b, px, py);
-}
-
-/** settings */
-function toggleSound(sound: Sound) {
-  const set = new Set(settings.selectedSounds);
-  set.has(sound) ? set.delete(sound) : set.add(sound);
-
-  const next = Array.from(set) as Sound[];
-  settings.selectedSounds = next.length ? next : [...DEFAULT_SOUNDS];
-}
-function setTarget(sound: Sound) {
-  settings.targetSound = sound;
-}
-function setLevel(v: Level) {
-  settings.level = v;
-}
-function setMode(v: GameMode) {
-  settings.mode = v;
-}
-function setRoundSeconds(v: number) {
-  settings.roundSeconds = clamp(Math.round(v), 30, 60);
-}
-
-/** visibility auto-pause */
-function handleVisibilityChange() {
-  if (document.hidden && isRunning.value) pauseRound();
-}
-
-/** lifecycle */
-onMounted(async () => {
-  timeLeftMs = settings.roundSeconds * 1000;
-  timeLeft.value = settings.roundSeconds;
-
-  await nextTick();
-  attachResizeObservers();
-
-  refreshLayoutCache(true);
-
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-});
-
-onUnmounted(() => {
-  speech.stop();
-
-  ro?.disconnect();
-  ro = null;
-
-  if (roRaf !== null) {
-    cancelAnimationFrame(roRaf);
-    roRaf = null;
-  }
-
-  if (winResizeHandler) {
-    window.removeEventListener("resize", winResizeHandler);
-    winResizeHandler = null;
-  }
-
-  if (rafId !== null) {
-    cancelAnimationFrame(rafId);
-    rafId = null;
-  }
-
-  document.removeEventListener("keydown", handleOnboardingKeydown);
-  document.removeEventListener("visibilitychange", handleVisibilityChange);
-
-  clearAllEntitiesToPool();
-});
-
-watch(
-  () => settings.roundSeconds,
-  () => {
-    if (isIdle.value) {
-      timeLeftMs = settings.roundSeconds * 1000;
-      timeLeft.value = settings.roundSeconds;
-      lastUiTimeUpdateTs = 0;
-    }
-  },
-);
+watch(() => props.locale, stopSession);
+onBeforeUnmount(clearCelebrationTimer);
 </script>
 
 <template>
-  <section class="mt-6" :aria-label="t('soundpop.aria.section')">
-    <div class="mx-auto max-w-6xl">
-      <div
-        class="relative overflow-hidden rounded-3xl border border-sky-200/60 bg-white shadow-[0_30px_80px_rgba(2,132,199,0.14)]"
+  <div class="game-shell">
+    <div class="sound-picker" :aria-label="copy.soundPicker">
+      <button
+        v-for="(card, key) in cards"
+        :key="key"
+        type="button"
+        class="sound-button"
+        :class="{ active: selectedSound === key }"
+        :style="{ '--sound-color': card.color, '--sound-soft': card.softColor }"
+        :aria-pressed="selectedSound === key"
+        :aria-label="`${copy.chooseSound} ${card.letter}`"
+        @click="selectSound(key as SoundKey)"
       >
-        <div aria-hidden="true" class="pointer-events-none absolute inset-0">
-          <div
-            class="absolute -left-24 -top-28 h-[320px] w-[320px] rounded-full bg-sky-200/55 blur-3xl"
-          ></div>
-          <div
-            class="absolute -right-28 -top-24 h-[340px] w-[340px] rounded-full bg-pink-200/50 blur-3xl"
-          ></div>
-          <div
-            class="absolute left-1/2 top-[65%] h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-sky-100/60 blur-3xl"
-          ></div>
+        <b>{{ card.letter }}</b>
+        <span>{{ card.stretch }}</span>
+      </button>
+    </div>
+
+    <section
+      class="game-card"
+      :style="{ '--active-color': activeCard.color, '--active-soft': activeCard.softColor }"
+      :aria-label="`${copy.trainSound} ${activeCard.letter}`"
+    >
+      <header class="game-topline">
+        <div>
+          <span>{{ copy.trainSound }}</span>
+          <strong>{{ activeCard.letter }}</strong>
         </div>
+        <div class="star-track" :aria-label="`${copy.starsAria}: ${progress} / ${goal}`">
+          <i v-for="star in goal" :key="star" :class="{ earned: star <= progress }" aria-hidden="true">★</i>
+        </div>
+      </header>
 
-        <header
-          class="relative border-b border-sky-200/50 px-4 py-5 sm:px-6 sm:py-6"
-        >
-          <div
-            class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
-          >
-            <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <span
-                  class="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-sky-200/70 bg-white/70 shadow-sm backdrop-blur"
-                  aria-hidden="true"
-                >
-                  <span class="h-2 w-2 rounded-full bg-sky-400"></span>
-                </span>
-                <h2
-                  class="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl"
-                >
-                  {{ t("soundpop.title") }}
-                </h2>
-              </div>
+      <div class="game-layout">
+        <aside class="tongue-tip">
+          <span aria-hidden="true">👅</span>
+          <div><b>{{ copy.tongueHint }}</b><p>{{ activeCard.tongueTip }}</p></div>
+        </aside>
 
-              <p class="mt-2 max-w-[72ch] text-xs text-slate-600 sm:text-sm">
-                {{ t("soundpop.subtitle") }}
-              </p>
-              <p class="mt-2 max-w-[72ch] text-xs text-slate-600 sm:text-sm">
-                {{ t("soundpop.hintRound") }}
-              </p>
-            </div>
+        <div class="play-zone">
+          <p class="game-status" aria-live="polite">{{ statusText }}</p>
 
-            <div class="grid w-full grid-cols-2 gap-2 sm:w-auto sm:gap-3">
-              <div
-                class="flex min-h-[52px] items-center gap-3 rounded-2xl border border-sky-200/60 bg-white/70 px-3 py-2 shadow-sm backdrop-blur"
-              >
-                <span
-                  class="h-2 w-2 rounded-full bg-sky-400"
-                  aria-hidden="true"
-                ></span>
-                <div class="min-w-0">
-                  <p class="text-[11px] font-semibold text-slate-500">
-                    {{ t("soundpop.ui.time") }}
-                  </p>
-                  <p class="text-sm font-extrabold text-slate-900">
-                    {{ timeLeftCeil }}{{ t("soundpop.ui.seconds") }}
-                  </p>
-                </div>
-              </div>
-
-              <div
-                class="flex min-h-[52px] items-center gap-3 rounded-2xl border border-pink-200/60 bg-white/70 px-3 py-2 shadow-sm backdrop-blur"
-              >
-                <span
-                  class="h-2 w-2 rounded-full bg-pink-400"
-                  aria-hidden="true"
-                ></span>
-                <div class="min-w-0">
-                  <p class="text-[11px] font-semibold text-slate-500">
-                    {{ t("soundpop.ui.score") }}
-                  </p>
-                  <p class="text-sm font-extrabold text-slate-900">
-                    {{ score }}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="mt-4 flex flex-wrap gap-2">
+          <div v-if="phase !== 'complete'" class="picture-stage" :class="{ celebrating: phase === 'celebrating' }">
             <button
+              :key="`${props.locale}-${selectedSound}-${cardRound}`"
               type="button"
-              class="group relative inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-gradient-to-br from-sky-200 to-sky-100 px-5 py-3 font-extrabold text-slate-900 shadow-sm transition active:scale-[0.98] disabled:opacity-60"
-              @click="onPrimaryActionClick"
-              :aria-label="primaryActionAria"
-              :disabled="onboardingOpen"
+              class="picture-bubble"
+              :class="{ 'bubble-pop': phase === 'celebrating' }"
+              :disabled="phase !== 'playing'"
+              :aria-label="`${copy.pictureAria}: ${activeCard.name}. ${copy.pictureAction}`"
+              @click="completeTurn"
             >
-              <span
-                aria-hidden="true"
-                class="pointer-events-none absolute -inset-24 opacity-0 blur-2xl transition group-hover:opacity-100"
-                style="
-                  background:
-                    radial-gradient(
-                      circle at 30% 30%,
-                      rgba(56, 189, 248, 0.55),
-                      transparent 55%
-                    ),
-                    radial-gradient(
-                      circle at 70% 40%,
-                      rgba(244, 114, 182, 0.35),
-                      transparent 60%
-                    );
-                "
-              ></span>
-              <span class="relative">{{ primaryActionText }}</span>
+              <span class="bubble-shine" aria-hidden="true" />
+              <img :src="activeCard.image" :alt="activeCard.name" width="320" height="320" draggable="false" />
             </button>
 
-            <button
-              type="button"
-              class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98] disabled:opacity-60"
-              @click="() => stopRound(false)"
-              :disabled="isIdle"
-              :aria-label="t('soundpop.aria.stop')"
-            >
-              {{ t("soundpop.actions.stop") }}
-            </button>
-
-            <button
-              type="button"
-              class="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-pink-200/70 bg-white/70 px-4 py-3 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98]"
-              @click="openOnboardingIfNeeded"
-              :aria-label="t('soundpop.aria.tips')"
-            >
-              {{ t("soundpop.actions.tips") }}
-            </button>
-          </div>
-
-          <div
-            v-if="rewardText"
-            class="mt-4 flex items-center gap-3 rounded-2xl border border-pink-200/60 bg-white/75 px-4 py-3 shadow-sm backdrop-blur"
-          >
-            <span
-              class="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-200 to-sky-200 shadow-sm"
-              aria-hidden="true"
-            ></span>
-            <p class="text-sm font-extrabold text-slate-900" aria-live="polite">
-              {{ rewardText }}
-            </p>
-          </div>
-        </header>
-
-        <div
-          class="relative grid grid-cols-1 gap-0 lg:grid-cols-12 lg:items-stretch"
-        >
-          <div class="lg:col-span-8 p-4 sm:p-6 flex flex-col h-full">
-            <div class="flex-1">
-              <div
-                ref="containerRef"
-                class="relative overflow-hidden rounded-3xl border border-sky-200/70 bg-white shadow-[0_18px_60px_rgba(14,165,233,0.14)] h-[calc(100dvh-290px)] min-h-[320px] sm:h-auto sm:min-h-[520px] lg:h-full lg:min-h-0"
-                style="touch-action: none"
-                role="region"
-                :aria-label="t('soundpop.aria.field')"
-              >
-                <div
-                  aria-hidden="true"
-                  class="pointer-events-none absolute inset-0"
-                >
-                  <div
-                    class="absolute inset-0"
-                    style="
-                      background:
-                        radial-gradient(
-                          520px 260px at 18% 10%,
-                          rgba(56, 189, 248, 0.25),
-                          transparent 60%
-                        ),
-                        radial-gradient(
-                          520px 280px at 88% 16%,
-                          rgba(244, 114, 182, 0.2),
-                          transparent 62%
-                        ),
-                        radial-gradient(
-                          700px 320px at 50% 110%,
-                          rgba(186, 230, 253, 0.25),
-                          transparent 60%
-                        ),
-                        linear-gradient(
-                          180deg,
-                          rgba(255, 255, 255, 0.82),
-                          rgba(255, 255, 255, 0.96)
-                        );
-                    "
-                  ></div>
-                </div>
-
-                <div class="absolute inset-0">
-                  <button
-                    v-for="b in bubbles"
-                    :key="b.id"
-                    type="button"
-                    class="absolute left-0 top-0 touch-none disabled:pointer-events-none"
-                    :style="b.tf"
-                    :disabled="b.popped || !isRunning || interactionsLocked"
-                    @pointerdown="onBubblePointerDown(b, $event)"
-                    @keydown="onBubbleKeydown(b, $event)"
-                    :aria-label="`${t('soundpop.aria.bubble')} ${b.word}`"
-                  >
-                    <div
-                      class="relative size-[80px] rounded-full border border-sky-200/70 bg-white/75 shadow-[0_18px_50px_rgba(2,132,199,0.16)] backdrop-blur"
-                      :class="[b.removeReason === 'hit' ? 'animate-pop' : '']"
-                    >
-                      <div
-                        aria-hidden="true"
-                        class="absolute inset-0 rounded-full"
-                        style="
-                          background:
-                            radial-gradient(
-                              circle at 30% 25%,
-                              rgba(255, 255, 255, 0.75),
-                              transparent 48%
-                            ),
-                            radial-gradient(
-                              circle at 75% 80%,
-                              rgba(56, 189, 248, 0.18),
-                              transparent 58%
-                            );
-                        "
-                      ></div>
-
-                      <div
-                        class="absolute left-1/2 top-1/2 w-[74px] -translate-x-1/2 -translate-y-1/2 text-center text-[14px] font-black leading-tight text-slate-900"
-                      >
-                        {{ b.word }}
-                      </div>
-                    </div>
-                  </button>
-                </div>
-
-                <div class="absolute inset-0 pointer-events-none">
-                  <div
-                    v-for="p in particles"
-                    :key="p.id"
-                    class="particle-dot absolute size-2 rounded-full"
-                    :style="p.style"
-                  ></div>
-                </div>
-
-                <div
-                  v-if="isIdle"
-                  class="absolute inset-0 flex items-center justify-center p-4"
-                >
-                  <div
-                    class="rounded-3xl border border-sky-200/70 bg-white/75 px-6 py-5 shadow-sm backdrop-blur"
-                  >
-                    <p class="text-sm font-extrabold text-slate-900">
-                      {{ t("soundpop.ui.readyTitle") }}
-                    </p>
-                    <p class="mt-1 text-xs text-slate-600">
-                      {{ t("soundpop.ui.readyText") }}
-                    </p>
-                  </div>
-                </div>
-
-                <div v-if="onboardingStep >= 0" class="absolute inset-0 z-20">
-                  <div
-                    class="absolute inset-0 bg-slate-900/30 backdrop-blur-sm"
-                  ></div>
-
-                  <div
-                    ref="onboardingModalRef"
-                    class="absolute left-1/2 top-1/2 w-[92%] max-w-[560px] -translate-x-1/2 -translate-y-1/2 max-h-[calc(100dvh-120px)] overflow-hidden rounded-3xl border border-sky-200/70 bg-white/85 p-5 shadow-[0_30px_80px_rgba(2,132,199,0.20)] backdrop-blur sm:p-6 sm:max-h-[80vh]"
-                    role="dialog"
-                    aria-modal="true"
-                    :aria-label="t('soundpop.tips.title')"
-                    tabindex="-1"
-                  >
-                    <div class="flex items-start justify-between gap-3">
-                      <div>
-                        <p class="text-sm font-extrabold text-slate-900">
-                          {{ t("soundpop.tips.title") }}
-                        </p>
-                        <p class="mt-1 text-xs text-slate-600">
-                          {{ t("soundpop.tips.subtitle") }}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        class="inline-flex min-h-[40px] items-center justify-center rounded-2xl border border-pink-200/70 bg-white/70 px-3 py-2 font-semibold text-slate-900 shadow-sm backdrop-blur transition hover:shadow-md active:scale-[0.98]"
-                        @click="skipOnboarding"
-                      >
-                        {{ t("soundpop.tips.skip") }}
-                      </button>
-                    </div>
-
-                    <div
-                      class="mt-4 rounded-3xl border border-sky-200/70 bg-white/70 p-4 backdrop-blur"
-                    >
-                      <p
-                        v-if="onboardingStep === 0"
-                        class="text-sm font-semibold text-slate-900"
-                      >
-                        {{ t("soundpop.tips.step1") }}
-                      </p>
-                      <p
-                        v-else-if="onboardingStep === 1"
-                        class="text-sm font-semibold text-slate-900"
-                      >
-                        {{ t("soundpop.tips.step2") }}
-                      </p>
-                      <p v-else class="text-sm font-semibold text-slate-900">
-                        {{ t("soundpop.tips.step3") }}
-                      </p>
-                    </div>
-
-                    <div
-                      class="mt-5 flex flex-wrap items-center justify-between gap-3"
-                    >
-                      <div
-                        class="rounded-2xl border border-pink-200/70 bg-white/70 px-4 py-3 shadow-sm backdrop-blur"
-                      >
-                        <p class="text-xs font-semibold text-slate-600">
-                          {{ t("soundpop.tips.step") }}
-                        </p>
-                        <p class="text-sm font-extrabold text-slate-900">
-                          {{ onboardingStep + 1 }}/3
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        class="group relative inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-sky-200/70 bg-gradient-to-br from-pink-200 to-sky-200 px-5 py-3 font-extrabold text-slate-900 shadow-sm transition active:scale-[0.98]"
-                        @click="nextOnboarding"
-                      >
-                        <span
-                          aria-hidden="true"
-                          class="pointer-events-none absolute -inset-24 opacity-0 blur-2xl transition group-hover:opacity-100"
-                          style="
-                            background:
-                              radial-gradient(
-                                circle at 30% 30%,
-                                rgba(244, 114, 182, 0.55),
-                                transparent 55%
-                              ),
-                              radial-gradient(
-                                circle at 70% 40%,
-                                rgba(56, 189, 248, 0.4),
-                                transparent 60%
-                              );
-                          "
-                        ></span>
-                        <span class="relative">{{
-                          t("soundpop.tips.next")
-                        }}</span>
-                      </button>
-                    </div>
-
-                    <p class="mt-3 text-[11px] text-slate-500">
-                      {{ t("soundpop.tips.esc") }}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <aside
-            class="lg:col-span-4 border-t border-sky-200/50 bg-white/55 p-4 backdrop-blur sm:p-6 lg:border-l lg:border-t-0 h-full"
-          >
-            <div class="flex items-center justify-between">
-              <p class="text-sm font-extrabold text-slate-900">
-                {{ t("soundpop.settings.title") }}
-              </p>
+            <div v-if="phase === 'celebrating'" class="burst-fx" aria-hidden="true">
+              <span class="burst-ring burst-ring-one" />
+              <span class="burst-ring burst-ring-two" />
+              <i v-for="particle in 12" :key="particle" class="burst-particle" :style="burstStyle(particle - 1)" />
             </div>
 
-            <div class="mt-3 space-y-2">
-              <details
-                open
-                class="overflow-hidden rounded-3xl border border-pink-200/70 bg-white/70 shadow-sm backdrop-blur"
-              >
-                <summary
-                  class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
-                >
-                  {{ t("soundpop.mic.title") }}
-                </summary>
+            <strong class="picture-name">{{ activeCard.name }}</strong>
+            <p v-if="feedback" class="feedback" aria-live="polite">{{ feedback }}</p>
+          </div>
 
-                <div class="px-4 pb-4">
-                  <p class="text-[12px] text-slate-500">
-                    {{ t("soundpop.mic.desc") }}
-                  </p>
-                  <p class="mt-2 text-[12px] text-slate-700 font-semibold">
-                    {{ speechStatusText }}
-                    <span
-                      v-if="speech.errorMessage"
-                      class="ml-1 text-pink-600 font-extrabold"
-                    >
-                      {{ speechErrorText }}
-                    </span>
-                  </p>
-                  <p v-if="isInApp" class="mt-2 text-[11px] text-slate-500">
-                    {{ inAppHintText }}
-                  </p>
-                  <p class="mt-1 text-[11px] text-slate-500">
-                    {{
-                      speech.supported()
-                        ? "Web Speech API"
-                        : "No Web Speech API"
-                    }}
-                  </p>
-                </div>
-              </details>
+          <div v-else class="finish-card" role="status">
+            <span aria-hidden="true">🌟</span>
+            <h3>{{ copy.finishTitle }}</h3>
+            <p>{{ copy.finishText }}</p>
+            <button type="button" @click="startSession">{{ copy.again }}</button>
+          </div>
 
-              <details
-                open
-                class="overflow-hidden rounded-3xl border border-sky-200/70 bg-white/70 shadow-sm backdrop-blur"
-              >
-                <summary
-                  class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
-                >
-                  {{ t("soundpop.mode.title") }}
-                </summary>
-
-                <div class="px-4 pb-4">
-                  <div class="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      class="min-h-[44px] rounded-2xl border border-sky-200/70 bg-white/70 px-3 py-3 text-sm font-semibold text-slate-900 shadow-sm backdrop-blur active:scale-[0.98] disabled:opacity-60"
-                      :class="
-                        settings.mode === 'target'
-                          ? 'bg-gradient-to-br from-sky-200/70 to-white/60 font-extrabold'
-                          : ''
-                      "
-                      :aria-pressed="settings.mode === 'target'"
-                      @click="setMode('target')"
-                      :disabled="!isIdle"
-                    >
-                      {{ t("soundpop.mode.target") }}
-                    </button>
-
-                    <button
-                      type="button"
-                      class="min-h-[44px] rounded-2xl border border-sky-200/70 bg-white/70 px-3 py-3 text-sm font-semibold text-slate-900 shadow-sm backdrop-blur active:scale-[0.98] disabled:opacity-60"
-                      :class="
-                        settings.mode === 'mixed'
-                          ? 'bg-gradient-to-br from-sky-200/70 to-white/60 font-extrabold'
-                          : ''
-                      "
-                      :aria-pressed="settings.mode === 'mixed'"
-                      @click="setMode('mixed')"
-                      :disabled="!isIdle"
-                    >
-                      {{ t("soundpop.mode.mixed") }}
-                    </button>
-                  </div>
-                </div>
-              </details>
-
-              <details
-                open
-                class="overflow-hidden rounded-3xl border border-pink-200/70 bg-white/70 shadow-sm backdrop-blur"
-              >
-                <summary
-                  class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
-                >
-                  {{ t("soundpop.words.title") }}
-                </summary>
-
-                <div class="space-y-3 px-4 pb-4">
-                  <div>
-                    <p class="text-xs font-semibold text-slate-600">
-                      {{ t("soundpop.words.target") }}
-                    </p>
-                    <div class="mt-2 grid grid-cols-3 gap-2">
-                      <button
-                        v-for="s in ['R', 'L', 'SH'] as const"
-                        :key="s"
-                        type="button"
-                        class="min-h-[44px] rounded-2xl border border-sky-200/70 bg-white/70 px-3 py-3 text-sm font-semibold text-slate-900 shadow-sm backdrop-blur active:scale-[0.98] disabled:opacity-60"
-                        :class="
-                          settings.targetSound === s
-                            ? 'bg-gradient-to-br from-pink-200/70 to-white/60 font-extrabold border-pink-200/70'
-                            : ''
-                        "
-                        :aria-pressed="settings.targetSound === s"
-                        @click="setTarget(s)"
-                        :disabled="!isIdle"
-                      >
-                        {{ soundLabel(s) }}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p class="text-xs font-semibold text-slate-600">
-                      {{ t("soundpop.words.multi") }}
-                    </p>
-                    <div class="mt-2 grid grid-cols-3 gap-2">
-                      <button
-                        v-for="s in ['R', 'L', 'SH'] as const"
-                        :key="s"
-                        type="button"
-                        class="min-h-[44px] rounded-2xl border border-sky-200/70 bg-white/70 px-3 py-3 text-sm font-semibold text-slate-900 shadow-sm backdrop-blur active:scale-[0.98] disabled:opacity-60"
-                        :class="
-                          settings.selectedSounds.includes(s)
-                            ? 'bg-gradient-to-br from-sky-200/70 to-white/60 font-extrabold'
-                            : ''
-                        "
-                        :aria-pressed="settings.selectedSounds.includes(s)"
-                        @click="toggleSound(s)"
-                        :disabled="!isIdle"
-                      >
-                        {{ soundLabel(s) }}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </details>
-
-              <details
-                open
-                class="overflow-hidden rounded-3xl border border-sky-200/70 bg-white/70 shadow-sm backdrop-blur"
-              >
-                <summary
-                  class="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-extrabold text-slate-900"
-                >
-                  {{ t("soundpop.difficulty.title") }}
-                </summary>
-
-                <div class="space-y-3 px-4 pb-4">
-                  <div>
-                    <p class="text-xs font-semibold text-slate-600">
-                      {{ t("soundpop.difficulty.level") }}
-                    </p>
-                    <div class="mt-2 grid grid-cols-3 gap-2">
-                      <button
-                        v-for="lv in [1, 2, 3] as const"
-                        :key="lv"
-                        type="button"
-                        class="min-h-[44px] rounded-2xl border border-sky-200/70 bg-white/70 px-3 py-3 text-sm font-semibold text-slate-900 shadow-sm backdrop-blur active:scale-[0.98] disabled:opacity-60"
-                        :class="
-                          settings.level === lv
-                            ? 'bg-gradient-to-br from-pink-200/70 to-white/60 font-extrabold border-pink-200/70'
-                            : ''
-                        "
-                        :aria-pressed="settings.level === lv"
-                        @click="setLevel(lv)"
-                        :disabled="!isIdle"
-                      >
-                        {{ lv }}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div class="flex items-center justify-between">
-                      <p class="text-xs font-semibold text-slate-600">
-                        {{ t("soundpop.difficulty.round") }}
-                      </p>
-                      <p class="text-xs font-extrabold text-slate-900">
-                        {{ settings.roundSeconds
-                        }}{{ t("soundpop.ui.seconds") }}
-                      </p>
-                    </div>
-
-                    <input
-                      class="mt-2 w-full accent-sky-400"
-                      type="range"
-                      min="30"
-                      max="60"
-                      step="1"
-                      :value="settings.roundSeconds"
-                      @input="
-                        setRoundSeconds(
-                          Number(($event.target as HTMLInputElement).value),
-                        )
-                      "
-                      :disabled="!isIdle"
-                      :aria-label="t('soundpop.aria.roundLength')"
-                    />
-                  </div>
-
-                  <p class="text-[12px] text-slate-500">
-                    {{ t("soundpop.difficulty.note") }}
-                  </p>
-                </div>
-              </details>
-            </div>
-          </aside>
+          <template v-if="phase === 'ready'">
+            <button type="button" class="start-button" @click="startSession">{{ copy.start }}</button>
+          </template>
+          <template v-else-if="phase !== 'complete'">
+            <button type="button" class="listen-button" @click="speakExample"><span aria-hidden="true">🔊</span> {{ copy.listen }}</button>
+            <p class="mic-status" :class="speech.state.value"><span aria-hidden="true">●</span> {{ micText }}</p>
+            <p class="tap-hint">{{ copy.tapHint }}</p>
+          </template>
         </div>
       </div>
-    </div>
-  </section>
+
+      <p class="game-note"><strong>{{ copy.noteStrong }}</strong> {{ copy.note }}</p>
+    </section>
+  </div>
 </template>
 
-<style scoped lang="scss">
-.particle-dot {
-  background: rgba(244, 114, 182, 0.75);
-  box-shadow: 0 14px 35px rgba(244, 114, 182, 0.18);
-}
-
-@keyframes pop {
-  0% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  70% {
-    transform: scale(1.08);
-    opacity: 0.85;
-  }
-  100% {
-    transform: scale(0.82);
-    opacity: 0;
-  }
-}
-.animate-pop {
-  animation: pop 220ms ease-out forwards;
-}
+<style scoped>
+.game-shell{width:min(980px,100%);margin-inline:auto}.sound-picker{display:flex;justify-content:center;gap:12px;margin-bottom:18px}.sound-button{display:flex;align-items:center;gap:10px;min-width:114px;padding:10px 16px;border:2px solid transparent;border-radius:19px;color:#526080;background:rgba(255,255,255,.78);box-shadow:0 8px 24px rgba(49,65,105,.09);transition:transform .18s ease,border-color .18s ease,background .18s ease}.sound-button:hover{transform:translateY(-2px)}.sound-button b{display:grid;width:36px;height:36px;place-items:center;border-radius:12px;color:var(--sound-color);background:var(--sound-soft);font-size:1.3rem;font-weight:950}.sound-button span{font-size:.7rem;font-weight:900}.sound-button.active{border-color:var(--sound-color);background:#fff;transform:translateY(-3px);box-shadow:0 12px 28px color-mix(in srgb,var(--sound-color) 22%,transparent)}
+.game-card{overflow:hidden;border:1px solid rgba(37,52,91,.09);border-radius:36px;background:rgba(255,255,255,.78);box-shadow:0 28px 70px rgba(57,75,118,.13);backdrop-filter:blur(16px)}.game-topline{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:19px 25px;border-bottom:1px solid rgba(37,52,91,.07);background:linear-gradient(90deg,var(--active-soft),rgba(255,255,255,.7))}.game-topline>div:first-child{display:flex;align-items:center;gap:9px;color:#687596;font-size:.75rem;font-weight:850}.game-topline strong{display:grid;width:37px;height:37px;place-items:center;border-radius:12px;color:#fff;background:var(--active-color);font-size:1.2rem}.star-track{display:flex;gap:5px}.star-track i{color:#dfe5ef;font-size:1.24rem;font-style:normal;transition:color .2s ease,transform .3s cubic-bezier(.2,1.8,.4,1)}.star-track i.earned{color:#ffc94f;transform:scale(1.2) rotate(8deg);text-shadow:0 4px 10px rgba(255,190,50,.35)}
+.game-layout{display:grid;grid-template-columns:210px minmax(0,1fr);min-height:570px}.tongue-tip{display:flex;align-items:flex-start;gap:11px;padding:28px 22px;border-right:1px solid rgba(37,52,91,.07);color:#687596;background:rgba(255,250,241,.6)}.tongue-tip>span{display:grid;flex:0 0 auto;width:42px;height:42px;place-items:center;border-radius:14px;background:#fff;box-shadow:0 7px 20px rgba(57,75,118,.08)}.tongue-tip b{display:block;margin-top:3px;color:#25345b;font-size:.76rem}.tongue-tip p{margin-top:7px;font-size:.72rem;line-height:1.55;font-weight:650}.play-zone{position:relative;display:flex;min-width:0;flex-direction:column;align-items:center;justify-content:center;padding:28px 24px 32px;text-align:center}.game-status{min-height:25px;color:#687596;font-size:.8rem;font-weight:900;letter-spacing:.04em;text-transform:uppercase}.picture-stage{position:relative;display:flex;min-height:382px;flex-direction:column;align-items:center;justify-content:center;isolation:isolate}.picture-bubble{position:relative;z-index:2;display:grid;width:280px;height:280px;place-items:center;overflow:hidden;border:3px solid rgba(255,255,255,.9);border-radius:50%;background:radial-gradient(circle at 30% 25%,#fff 0 12%,var(--active-soft) 58%,color-mix(in srgb,var(--active-color) 28%,white));box-shadow:0 25px 55px color-mix(in srgb,var(--active-color) 25%,transparent),inset 0 -15px 30px rgba(37,52,91,.05);cursor:pointer;transform-style:preserve-3d;will-change:transform,filter,opacity;animation:card-arrive .66s cubic-bezier(.18,1.35,.34,1) both,card-float 3.4s ease-in-out .66s infinite}.picture-bubble:disabled{cursor:default}.picture-bubble img{position:relative;z-index:2;width:86%;height:86%;object-fit:contain;filter:drop-shadow(0 14px 12px rgba(40,51,80,.12));pointer-events:none;will-change:transform,filter,opacity}.bubble-shine{position:absolute;top:12%;left:18%;z-index:3;width:28%;height:13%;border-radius:50%;background:rgba(255,255,255,.72);filter:blur(3px);transform:rotate(-24deg)}.picture-name{z-index:4;margin-top:10px;color:#25345b;font-size:1.5rem;font-weight:950;text-transform:capitalize}.feedback{position:absolute;z-index:5;bottom:18px;padding:8px 14px;border-radius:14px;color:#fff;background:#50bba9;box-shadow:0 9px 20px rgba(80,187,169,.25);font-size:.76rem;font-weight:900;animation:feedback-in .3s ease-out both}
+.picture-bubble.bubble-pop{pointer-events:none;animation:bubble-exit .84s cubic-bezier(.33,.02,.25,1) forwards}.picture-bubble.bubble-pop img{animation:image-exit .84s cubic-bezier(.2,.75,.25,1) forwards}.burst-fx{position:absolute;top:50%;left:50%;z-index:1;width:20px;height:20px;pointer-events:none}.burst-ring{position:absolute;inset:-90px;border:8px solid var(--active-color);border-radius:50%;opacity:0;animation:ring-burst .72s ease-out forwards}.burst-ring-two{border-width:3px;animation-delay:.1s}.burst-particle{position:absolute;top:5px;left:5px;width:11px;height:18px;border-radius:8px;background:var(--particle-color);box-shadow:0 4px 9px color-mix(in srgb,var(--particle-color) 40%,transparent);transform:rotate(var(--angle)) translateY(-25px);animation:particle-burst .68s cubic-bezier(.17,.67,.28,1) var(--delay) forwards}.celebrating .picture-name{animation:name-away .55s ease-in forwards}
+.start-button,.finish-card button{min-height:52px;padding:13px 23px;border-radius:18px;color:#fff;background:linear-gradient(135deg,var(--active-color),#ff7180);box-shadow:0 13px 26px color-mix(in srgb,var(--active-color) 28%,transparent);font-weight:950;transition:transform .16s ease}.start-button:hover,.finish-card button:hover{transform:translateY(-2px)}.listen-button{margin-top:2px;padding:8px 13px;border-radius:13px;color:#526080;background:#eef7ff;font-size:.72rem;font-weight:850}.mic-status{margin-top:12px;color:#8993ad;font-size:.69rem;font-weight:750}.mic-status span{color:#aab2c4}.mic-status.listening span{color:#42b99f;animation:mic-pulse 1.3s ease-in-out infinite}.mic-status.error span{color:#ff806c}.tap-hint{margin-top:5px;color:#98a1b6;font-size:.64rem}.game-note{padding:14px 22px;border-top:1px solid rgba(37,52,91,.07);color:#7b87a4;background:rgba(246,251,255,.7);font-size:.68rem;text-align:center}.game-note strong{color:#526080}.finish-card{display:flex;min-height:382px;flex-direction:column;align-items:center;justify-content:center}.finish-card>span{font-size:4.5rem;animation:finish-in .6s cubic-bezier(.2,1.5,.35,1) both}.finish-card h3{margin-top:10px;font-size:2rem;font-weight:950}.finish-card p{margin:7px 0 22px;color:#687596;font-weight:700}
+@keyframes card-arrive{0%{opacity:0;filter:blur(11px);transform:perspective(800px) translateY(85px) scale(.32) rotate(-12deg) rotateY(22deg)}68%{opacity:1;filter:blur(0);transform:perspective(800px) translateY(-7px) scale(1.05) rotate(2deg) rotateY(-4deg)}100%{transform:perspective(800px) translateY(0) scale(1) rotate(0) rotateY(0)}}@keyframes card-float{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-9px) rotate(1deg)}}@keyframes bubble-exit{0%{opacity:1;filter:blur(0);transform:perspective(800px) translateY(0) scale(1) rotate(0)}18%{transform:perspective(800px) translateY(9px) scale(.88) rotate(2deg)}44%{opacity:1;transform:perspective(800px) translateY(-4px) scale(1.13) rotate(-6deg)}72%{opacity:.76;filter:blur(1px);transform:perspective(800px) translateY(-36px) scale(.68) rotate(11deg) rotateY(18deg)}100%{opacity:0;filter:blur(12px);transform:perspective(800px) translateY(-130px) scale(.04) rotate(32deg) rotateY(75deg)}}@keyframes image-exit{0%,18%{filter:drop-shadow(0 14px 12px rgba(40,51,80,.12));transform:scale(1) rotate(0)}48%{transform:scale(1.16) rotate(-7deg)}100%{filter:blur(9px);opacity:0;transform:translateY(-45px) scale(.15) rotate(42deg)}}@keyframes ring-burst{0%{opacity:.85;transform:scale(.18)}100%{opacity:0;transform:scale(1.8)}}@keyframes particle-burst{0%{opacity:1;transform:rotate(var(--angle)) translateY(-20px) scale(.5)}70%{opacity:1}100%{opacity:0;transform:rotate(var(--angle)) translateY(calc(var(--distance) * -1)) scale(1) rotate(210deg)}}@keyframes name-away{to{opacity:0;filter:blur(5px);transform:translateY(20px) scale(.8)}}@keyframes feedback-in{from{opacity:0;transform:translateY(8px) scale(.8)}}@keyframes mic-pulse{50%{opacity:.35}}@keyframes finish-in{from{opacity:0;transform:scale(.25) rotate(-25deg)}}
+.picture-bubble{background:#fff;border-color:rgba(255,255,255,.95)}
+.picture-bubble img{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;object-fit:cover}
+.bubble-shine{top:8%;left:15%;width:31%;height:12%;background:rgba(255,255,255,.58);filter:blur(4px)}
+@media(max-width:720px){.game-layout{grid-template-columns:1fr}.tongue-tip{order:2;margin:0 16px 18px;padding:14px 16px;border:0;border-radius:18px}.play-zone{padding-inline:14px}.picture-bubble{width:min(250px,72vw);height:min(250px,72vw)}.picture-stage{min-height:355px}.game-topline{padding-inline:17px}.sound-button{min-width:0;flex:1;justify-content:center;padding-inline:8px}.sound-button span{display:none}}@media(max-width:430px){.sound-picker{gap:7px}.sound-button b{width:34px;height:34px}.game-card{border-radius:28px}.star-track{gap:2px}.star-track i{font-size:1rem}.game-topline>div:first-child>span{display:none}.picture-stage{min-height:330px}}
+@media(prefers-reduced-motion:reduce){.picture-bubble,.picture-bubble.bubble-pop,.picture-bubble.bubble-pop img,.burst-ring,.burst-particle,.celebrating .picture-name,.feedback,.finish-card>span,.mic-status.listening span{animation:none}.sound-button,.start-button,.finish-card button{transition:none}}
 </style>
