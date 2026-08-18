@@ -2,6 +2,22 @@
   "name": "til-up-landing",
   "private": true,
   "version": "0.0.3",
+  "description": "A bilingual Russian and Kazakh speech-practice game for children.",
+  "keywords": [
+    "speech-practice",
+    "children",
+    "russian",
+    "kazakh",
+    "vue",
+    "web-speech-api"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/serik-k/til-up.git"
+  },
+  "bugs": {
+    "url": "https://github.com/serik-k/til-up/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
