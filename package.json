@@ -23,6 +23,7 @@
     "dev": "vite",
     "build": "vite build",
     "type-check": "vue-tsc --noEmit",
+    "check": "npm run type-check && npm run build",
     "preview": "vite preview"
   },
   "dependencies": {
