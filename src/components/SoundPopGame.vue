@@ -6,8 +6,10 @@ import { useSpeechRecognition } from '../composables/useSpeechRecognition';
 const props = defineProps<{ locale: Locale }>();
 
 type Phase = 'ready' | 'playing' | 'celebrating' | 'complete';
+type GameStats = { sessions: number; words: number; bySound: Record<SoundKey, number> };
 
 const goal = 5;
+const statsKey = 'tilup_game_stats_v1';
 const phase = ref<Phase>('ready');
 const selectedSound = ref<SoundKey>('L');
 const progress = ref(0);
@@ -17,9 +19,33 @@ const actionLocked = ref(false);
 let celebrationTimer: ReturnType<typeof setTimeout> | null = null;
 let lastVoiceMatchAt = 0;
 
+function emptyStats(): GameStats {
+  return { sessions: 0, words: 0, bySound: { L: 0, R: 0, SH: 0 } };
+}
+
+function loadStats(): GameStats {
+  try {
+    const stored = JSON.parse(localStorage.getItem(statsKey) || 'null');
+    if (!stored || typeof stored !== 'object') return emptyStats();
+    return {
+      sessions: Number.isFinite(stored.sessions) ? Math.max(0, stored.sessions) : 0,
+      words: Number.isFinite(stored.words) ? Math.max(0, stored.words) : 0,
+      bySound: {
+        L: Number.isFinite(stored.bySound?.L) ? Math.max(0, stored.bySound.L) : 0,
+        R: Number.isFinite(stored.bySound?.R) ? Math.max(0, stored.bySound.R) : 0,
+        SH: Number.isFinite(stored.bySound?.SH) ? Math.max(0, stored.bySound.SH) : 0,
+      },
+    };
+  } catch {
+    return emptyStats();
+  }
+}
+
+const stats = ref<GameStats>(loadStats());
 const copy = computed(() => GAME_COPY[props.locale]);
-const cards = computed(() => CARD_SETS[props.locale]);
-const activeCard = computed(() => cards.value[selectedSound.value]);
+const cardDecks = computed(() => CARD_SETS[props.locale]);
+const activeDeck = computed(() => cardDecks.value[selectedSound.value]);
+const activeCard = computed(() => activeDeck.value[cardRound.value % activeDeck.value.length]);
 const speechLang = computed(() => (props.locale === 'kz' ? 'kk-KZ' : 'ru-RU'));
 
 const speech = useSpeechRecognition({
@@ -43,15 +69,49 @@ const micText = computed(() => {
   if (speech.state.value === 'unsupported') return copy.value.micUnsupported;
   if (speech.state.value === 'listening') return copy.value.micListening;
   if (speech.state.value === 'starting') return copy.value.micStarting;
-  if (speech.state.value === 'error') return copy.value.micError;
+  if (speech.state.value === 'error') {
+    if (speech.errorMessage.value === 'permission_denied') return copy.value.micPermission;
+    if (speech.errorMessage.value === 'audio_capture') return copy.value.micNoDevice;
+    if (speech.errorMessage.value === 'network') return copy.value.micNetwork;
+    if (speech.errorMessage.value === 'in_app_browser_audio_blocked' || speech.errorMessage.value === 'unstable_recognition') return copy.value.micBrowser;
+    return copy.value.micError;
+  }
   return copy.value.micIdle;
 });
 
-function normalizedWords(value: string) {
-  return String(value || '')
+const manualFallback = computed(() =>
+  speech.state.value === 'unsupported' || speech.state.value === 'error',
+);
+
+function saveStats(completedSession: boolean) {
+  const sound = selectedSound.value;
+  stats.value = {
+    sessions: stats.value.sessions + (completedSession ? 1 : 0),
+    words: stats.value.words + 1,
+    bySound: { ...stats.value.bySound, [sound]: stats.value.bySound[sound] + 1 },
+  };
+  try {
+    localStorage.setItem(statsKey, JSON.stringify(stats.value));
+  } catch {
+    // The game continues when storage is unavailable.
+  }
+}
+
+function resetStats() {
+  stats.value = emptyStats();
+  try {
+    localStorage.removeItem(statsKey);
+  } catch {
+    // The in-memory counters are still reset.
+  }
+}
+
+function normalizedWords(value: string): string[] {
+  const matches = String(value || '')
     .toLocaleLowerCase(props.locale === 'kz' ? 'kk-KZ' : 'ru-RU')
     .replace(/ё/g, 'е')
-    .match(/[\p{L}]+/gu) ?? [];
+    .match(/[\p{L}]+/gu);
+  return matches ? [...matches] : [];
 }
 
 function handleSpeech(text: string) {
@@ -79,7 +139,7 @@ function selectSound(sound: SoundKey) {
 async function startSession() {
   clearCelebrationTimer();
   progress.value = 0;
-  cardRound.value += 1;
+  cardRound.value = 0;
   feedback.value = '';
   actionLocked.value = false;
   phase.value = 'playing';
@@ -89,8 +149,10 @@ async function startSession() {
 function stopSession() {
   clearCelebrationTimer();
   speech.stop();
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   phase.value = 'ready';
   progress.value = 0;
+  cardRound.value = 0;
   feedback.value = '';
   actionLocked.value = false;
 }
@@ -101,6 +163,7 @@ function completeTurn() {
   phase.value = 'celebrating';
   feedback.value = copy.value.repeat;
   progress.value += 1;
+  saveStats(progress.value >= goal);
 
   clearCelebrationTimer();
   celebrationTimer = setTimeout(() => {
@@ -136,25 +199,28 @@ function burstStyle(index: number) {
 }
 
 watch(() => props.locale, stopSession);
-onBeforeUnmount(clearCelebrationTimer);
+onBeforeUnmount(() => {
+  clearCelebrationTimer();
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+});
 </script>
 
 <template>
   <div class="game-shell">
     <div class="sound-picker" :aria-label="copy.soundPicker">
       <button
-        v-for="(card, key) in cards"
+        v-for="(deck, key) in cardDecks"
         :key="key"
         type="button"
         class="sound-button"
         :class="{ active: selectedSound === key }"
-        :style="{ '--sound-color': card.color, '--sound-soft': card.softColor }"
+        :style="{ '--sound-color': deck[0].color, '--sound-soft': deck[0].softColor }"
         :aria-pressed="selectedSound === key"
-        :aria-label="`${copy.chooseSound} ${card.letter}`"
+        :aria-label="`${copy.chooseSound} ${deck[0].letter}`"
         @click="selectSound(key as SoundKey)"
       >
-        <b>{{ card.letter }}</b>
-        <span>{{ card.stretch }}</span>
+        <b>{{ deck[0].letter }}</b>
+        <span>{{ deck[0].stretch }}</span>
       </button>
     </div>
 
@@ -188,12 +254,15 @@ onBeforeUnmount(clearCelebrationTimer);
               type="button"
               class="picture-bubble"
               :class="{ 'bubble-pop': phase === 'celebrating' }"
-              :disabled="phase !== 'playing'"
-              :aria-label="`${copy.pictureAria}: ${activeCard.name}. ${copy.pictureAction}`"
+              :disabled="phase !== 'playing' || !manualFallback"
+              :aria-label="manualFallback
+                ? `${copy.pictureAria}: ${activeCard.name}. ${copy.pictureAction}`
+                : `${copy.pictureAria}: ${activeCard.name}. ${copy.sayPicture}`"
               @click="completeTurn"
             >
               <span class="bubble-shine" aria-hidden="true" />
-              <img :src="activeCard.image" :alt="activeCard.name" width="320" height="320" draggable="false" />
+              <img v-if="activeCard.image" :src="activeCard.image" :alt="activeCard.name" width="320" height="320" draggable="false" />
+              <span v-else class="card-emoji" aria-hidden="true">{{ activeCard.emoji }}</span>
             </button>
 
             <div v-if="phase === 'celebrating'" class="burst-fx" aria-hidden="true">
@@ -219,13 +288,19 @@ onBeforeUnmount(clearCelebrationTimer);
           <template v-else-if="phase !== 'complete'">
             <button type="button" class="listen-button" @click="speakExample"><span aria-hidden="true">🔊</span> {{ copy.listen }}</button>
             <p class="mic-status" :class="speech.state.value"><span aria-hidden="true">●</span> {{ micText }}</p>
-            <p class="tap-hint">{{ copy.tapHint }}</p>
+            <p v-if="manualFallback" class="tap-hint">{{ copy.tapHint }}</p>
           </template>
         </div>
       </div>
 
       <p class="game-note"><strong>{{ copy.noteStrong }}</strong> {{ copy.note }}</p>
     </section>
+
+    <aside class="parent-stats" :aria-label="copy.statsTitle">
+      <div><strong>{{ copy.statsTitle }}</strong><span>{{ copy.statsSessions }}: {{ stats.sessions }}</span><span>{{ copy.statsWords }}: {{ stats.words }}</span></div>
+      <div class="sound-stats" aria-hidden="true"><span>Л · {{ stats.bySound.L }}</span><span>Р · {{ stats.bySound.R }}</span><span>Ш · {{ stats.bySound.SH }}</span></div>
+      <button v-if="stats.words" type="button" @click="resetStats">{{ copy.statsReset }}</button>
+    </aside>
   </div>
 </template>
 
@@ -238,7 +313,10 @@ onBeforeUnmount(clearCelebrationTimer);
 @keyframes card-arrive{0%{opacity:0;filter:blur(11px);transform:perspective(800px) translateY(85px) scale(.32) rotate(-12deg) rotateY(22deg)}68%{opacity:1;filter:blur(0);transform:perspective(800px) translateY(-7px) scale(1.05) rotate(2deg) rotateY(-4deg)}100%{transform:perspective(800px) translateY(0) scale(1) rotate(0) rotateY(0)}}@keyframes card-float{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-9px) rotate(1deg)}}@keyframes bubble-exit{0%{opacity:1;filter:blur(0);transform:perspective(800px) translateY(0) scale(1) rotate(0)}18%{transform:perspective(800px) translateY(9px) scale(.88) rotate(2deg)}44%{opacity:1;transform:perspective(800px) translateY(-4px) scale(1.13) rotate(-6deg)}72%{opacity:.76;filter:blur(1px);transform:perspective(800px) translateY(-36px) scale(.68) rotate(11deg) rotateY(18deg)}100%{opacity:0;filter:blur(12px);transform:perspective(800px) translateY(-130px) scale(.04) rotate(32deg) rotateY(75deg)}}@keyframes image-exit{0%,18%{filter:drop-shadow(0 14px 12px rgba(40,51,80,.12));transform:scale(1) rotate(0)}48%{transform:scale(1.16) rotate(-7deg)}100%{filter:blur(9px);opacity:0;transform:translateY(-45px) scale(.15) rotate(42deg)}}@keyframes ring-burst{0%{opacity:.85;transform:scale(.18)}100%{opacity:0;transform:scale(1.8)}}@keyframes particle-burst{0%{opacity:1;transform:rotate(var(--angle)) translateY(-20px) scale(.5)}70%{opacity:1}100%{opacity:0;transform:rotate(var(--angle)) translateY(calc(var(--distance) * -1)) scale(1) rotate(210deg)}}@keyframes name-away{to{opacity:0;filter:blur(5px);transform:translateY(20px) scale(.8)}}@keyframes feedback-in{from{opacity:0;transform:translateY(8px) scale(.8)}}@keyframes mic-pulse{50%{opacity:.35}}@keyframes finish-in{from{opacity:0;transform:scale(.25) rotate(-25deg)}}
 .picture-bubble{background:#fff;border-color:rgba(255,255,255,.95)}
 .picture-bubble img{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;object-fit:cover}
+.card-emoji{position:relative;z-index:2;font-size:clamp(6rem,16vw,9rem);line-height:1;filter:drop-shadow(0 14px 12px rgba(40,51,80,.14))}
 .bubble-shine{top:8%;left:15%;width:31%;height:12%;background:rgba(255,255,255,.58);filter:blur(4px)}
+.parent-stats{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:18px;padding:16px 20px;border:1px solid rgba(37,52,91,.08);border-radius:22px;color:#687596;background:rgba(255,255,255,.68);font-size:.72rem}.parent-stats>div:first-child{display:flex;align-items:center;flex-wrap:wrap;gap:7px 16px}.parent-stats strong{color:#25345b;font-size:.8rem}.sound-stats{display:flex;gap:8px}.sound-stats span{padding:5px 8px;border-radius:9px;background:#fff;font-weight:850}.parent-stats button{color:#687596;text-decoration:underline;text-underline-offset:3px}
 @media(max-width:720px){.game-layout{grid-template-columns:1fr}.tongue-tip{order:2;margin:0 16px 18px;padding:14px 16px;border:0;border-radius:18px}.play-zone{padding-inline:14px}.picture-bubble{width:min(250px,72vw);height:min(250px,72vw)}.picture-stage{min-height:355px}.game-topline{padding-inline:17px}.sound-button{min-width:0;flex:1;justify-content:center;padding-inline:8px}.sound-button span{display:none}}@media(max-width:430px){.sound-picker{gap:7px}.sound-button b{width:34px;height:34px}.game-card{border-radius:28px}.star-track{gap:2px}.star-track i{font-size:1rem}.game-topline>div:first-child>span{display:none}.picture-stage{min-height:330px}}
+@media(max-width:640px){.parent-stats{align-items:flex-start;flex-direction:column}.sound-stats{order:2}.parent-stats button{order:3}}
 @media(prefers-reduced-motion:reduce){.picture-bubble,.picture-bubble.bubble-pop,.picture-bubble.bubble-pop img,.burst-ring,.burst-particle,.celebrating .picture-name,.feedback,.finish-card>span,.mic-status.listening span{animation:none}.sound-button,.start-button,.finish-card button{transition:none}}
 </style>

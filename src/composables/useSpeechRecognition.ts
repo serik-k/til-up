@@ -43,6 +43,7 @@ type SpeechRecognitionLike = {
   interimResults: boolean;
   maxAlternatives: number;
 
+  onstart: ((ev: Event) => void) | null;
   onresult: ((ev: RecEvent) => void) | null;
   onerror: ((ev: RecErrorEvent) => void) | null;
   onend: ((ev: Event) => void) | null;
@@ -164,6 +165,7 @@ export function useSpeechRecognition(opts: {
   let rec: SpeechRecognitionLike | null = null;
 
   let wantRunning = false;
+  let startRequestId = 0;
   let pendingLangRestart = false;
 
   let isStartingOrListening = false;
@@ -216,6 +218,7 @@ export function useSpeechRecognition(opts: {
     if (!r) return;
 
     try {
+      r.onstart = null;
       r.onresult = null;
       r.onerror = null;
       r.onend = null;
@@ -248,6 +251,12 @@ export function useSpeechRecognition(opts: {
     r.continuous = opts.continuous ?? true;
     r.interimResults = opts.interimResults ?? true;
     r.maxAlternatives = opts.maxAlternatives ?? 1;
+
+    r.onstart = () => {
+      if (!wantRunning || myInstance !== instanceId) return;
+      state.value = "listening";
+      restartDelay = 250;
+    };
 
     r.onresult = (ev: RecEvent) => {
       if (!wantRunning) return;
@@ -412,9 +421,6 @@ export function useSpeechRecognition(opts: {
       gotResultThisSession = false;
 
       r.start();
-
-      state.value = "listening";
-      restartDelay = 250;
     } catch (e: any) {
       isStartingOrListening = false;
 
@@ -463,6 +469,8 @@ export function useSpeechRecognition(opts: {
   }
 
   async function start() {
+    const requestId = ++startRequestId;
+
     if (!supported()) {
       state.value = "unsupported";
       errorMessage.value = "";
@@ -470,6 +478,8 @@ export function useSpeechRecognition(opts: {
     }
 
     await warmupMicrophone();
+
+    if (requestId !== startRequestId) return;
 
     wantRunning = true;
     pendingLangRestart = false;
@@ -481,6 +491,7 @@ export function useSpeechRecognition(opts: {
   }
 
   function stop() {
+    startRequestId += 1;
     wantRunning = false;
     pendingLangRestart = false;
 

@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { usePreferredReducedMotion } from '@vueuse/core';
 
-const props = defineProps<{ reducedMotion?: boolean }>();
+const props = defineProps<{ reducedMotion?: boolean; ariaLabel?: string }>();
 
 const prefersReduced = usePreferredReducedMotion();
 const motionOff = computed(() => !!props.reducedMotion || prefersReduced.value === 'reduce');
@@ -111,7 +111,7 @@ function onPointerLeave() {
 }
 
 /** Координаты эффекта в px внутри rootRef */
-function getLocalPoint(e: PointerEvent) {
+function getLocalPoint(e: Pick<PointerEvent, 'clientX' | 'clientY'>) {
   const el = rootRef.value;
   if (!el) return { x: 0, y: 0 };
   const rect = el.getBoundingClientRect();
@@ -260,7 +260,7 @@ function updateCombo(now: number) {
   lastTapAt = now;
 }
 
-function handleTap(e: PointerEvent, source: 'any' | 'badge' | 'bubble') {
+function handleTap(e: Pick<PointerEvent, 'clientX' | 'clientY'>, source: 'any' | 'badge' | 'bubble') {
   if (motionOff.value) return;
 
   const now = performance.now();
@@ -320,6 +320,19 @@ function tapAny(e: PointerEvent) {
   handleTap(e, 'any');
 }
 
+function tapFromKeyboard(e: KeyboardEvent) {
+  if (e.repeat || motionOff.value) return;
+  e.preventDefault();
+
+  const el = rootRef.value;
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  handleTap({
+    clientX: rect.left + rect.width / 2,
+    clientY: rect.top + rect.height / 2,
+  }, 'any');
+}
+
 onMounted(() => {
   setTiltVars(0, 0);
   const el = rootRef.value;
@@ -361,6 +374,11 @@ watch(motionOff, (off) => {
     ref="rootRef"
     class="til-appear relative mx-auto max-w-[420px] select-none"
     :data-motion-off="motionOff ? '1' : '0'"
+    :role="motionOff ? 'img' : 'button'"
+    :tabindex="motionOff ? -1 : 0"
+    :aria-label="props.ariaLabel || 'Til Up mascot'"
+    @keydown.enter="tapFromKeyboard"
+    @keydown.space="tapFromKeyboard"
   >
     <div class="til-float relative">
       <div
@@ -387,7 +405,7 @@ watch(motionOff, (off) => {
           </div>
         </div>
 
-        <svg viewBox="0 0 520 360" class="w-full h-auto" role="img" aria-label="Til Up mascot">
+        <svg viewBox="0 0 520 360" class="w-full h-auto" aria-hidden="true">
           <defs>
             <linearGradient id="gBody" x1="0" x2="1" y1="0" y2="1">
               <stop offset="0" stop-color="#FFFFFF" />

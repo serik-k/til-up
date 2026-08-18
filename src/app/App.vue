@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useHead } from '@vueuse/head';
+import { useHead } from '@unhead/vue';
 import Mascot from '../components/Mascot.vue';
 import SoundPopGame from '../components/SoundPopGame.vue';
 import { APP_COPY, SEO_COPY, type Locale } from '../content';
 
 function initialLocale(): Locale {
   try {
-    if (new URLSearchParams(window.location.search).get('lang') === 'kz') return 'kz';
+    const queryLocale = new URLSearchParams(window.location.search).get('lang');
+    if (queryLocale === 'ru' || queryLocale === 'kz') return queryLocale;
     return localStorage.getItem('tilup_locale') === 'kz' ? 'kz' : 'ru';
   } catch {
     return 'ru';
@@ -68,16 +69,16 @@ const headData = computed(() => {
     ],
     link: localeUrl.value
       ? [
-          { rel: 'canonical', href: localeUrl.value },
-          { rel: 'alternate', hreflang: 'ru', href: languageUrl('ru') },
-          { rel: 'alternate', hreflang: 'kk-KZ', href: languageUrl('kz') },
-          { rel: 'alternate', hreflang: 'x-default', href: languageUrl('ru') },
+          { rel: 'canonical' as const, href: localeUrl.value },
+          { rel: 'alternate' as const, hreflang: 'ru', href: languageUrl('ru') },
+          { rel: 'alternate' as const, hreflang: 'kk-KZ', href: languageUrl('kz') },
+          { rel: 'alternate' as const, hreflang: 'x-default', href: languageUrl('ru') },
         ]
       : [],
     script: localeUrl.value
       ? [{
-          type: 'application/ld+json',
-          children: JSON.stringify({
+          type: 'application/ld+json' as const,
+          innerHTML: JSON.stringify({
             '@context': 'https://schema.org',
             '@type': 'WebApplication',
             name: 'Til Up',
@@ -101,9 +102,14 @@ function setLocale(next: Locale) {
   locale.value = next;
   try {
     localStorage.setItem('tilup_locale', next);
-    window.history.replaceState({}, '', languageUrl(next));
   } catch {
     // Storage can be unavailable in privacy mode.
+  }
+
+  try {
+    window.history.replaceState({}, '', languageUrl(next));
+  } catch {
+    // History can be unavailable in embedded browsers.
   }
 }
 </script>
@@ -137,7 +143,7 @@ function setLocale(next: Locale) {
           </div>
         </div>
 
-        <div class="hero-mascot" :aria-label="copy.mascotAria"><Mascot /></div>
+        <div class="hero-mascot"><Mascot :aria-label="copy.mascotAria" /></div>
       </section>
 
       <section id="play" class="play-section" aria-labelledby="play-title">
