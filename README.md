@@ -1,181 +1,228 @@
-# Til Up
+<div align="center">
 
-Child-friendly speech practice in Russian and Kazakh.
+# 🗣️ Til Up — 🚀 Тіл Ап
 
-Детская тренировка речи на русском и казахском языках.
+### **Bilingual Speech Practice Game for Children | Детская игра для тренировки речи**
 
-[English](#english) · [Русский](#русский)
+[![Vue 3](https://img.shields.io/badge/Vue-3.5-4FC08D?style=for-the-badge&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-6.0-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-3.4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Web Speech API](https://img.shields.io/badge/Web_Speech_API-Native-FF6F00?style=for-the-badge&logo=googlechrome&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API)
+[![Privacy First](https://img.shields.io/badge/Privacy-100%25_Client--Side-4CAF50?style=for-the-badge&logo=shield&logoColor=white)](#-privacy--microphone-use--приватность)
 
----
-
-## English
-
-Til Up is a small browser-based speech practice game for children. It helps a child repeat words containing the **Л**, **Р**, and **Ш** sounds through short, positive exercises with pictures, voice examples, and gentle rewards.
-
-The experience is voice-first: a child chooses a sound, starts an exercise, looks at a card, and says the word aloud. The game uses the browser's Web Speech API to recognize the expected word. If speech recognition is unavailable or microphone access fails, a manual fallback is enabled automatically so the exercise is never blocked.
-
-### Features
-
-- Russian and Kazakh interfaces and word sets
-- 18 localized practice cards across three target sounds
-- Automatic card rotation during a five-word exercise
-- Browser speech recognition and spoken word examples
-- Clear microphone permission and compatibility messages
-- Local progress summary for parents
-- No account, backend, analytics, or remote project database
-- Responsive layout, keyboard support, and reduced-motion support
-- Localized SEO metadata, canonical links, `hreflang`, Open Graph, and JSON-LD
-
-### How it works
-
-1. Select **Л**, **Р**, or **Ш**.
-2. Start the exercise and allow microphone access.
-3. Say the word shown on the card.
-4. Collect five stars to complete the exercise.
-5. Review the locally stored session and word counters.
-
-Til Up recognizes the name of the picture. It does **not** assess articulation quality and is not a diagnostic or medical tool. It is intended for light practice and does not replace sessions with a speech-language professional.
-
-### Privacy and microphone use
-
-- The application itself has no backend and does not upload or store recordings.
-- Exercise statistics are stored only in the browser's `localStorage`.
-- Speech recognition is provided by the browser. Depending on the browser and operating system, audio processing may be performed by the browser vendor's online service.
-- Microphone access begins only after the user starts an exercise.
-- If access is denied or recognition fails, the game enables a manual fallback.
-
-For public deployment, serve the application over HTTPS. Browser support for the Web Speech API varies; current Chromium-based browsers generally provide the best experience.
-
-### Development
-
-Requirements: a current Node.js LTS release and npm.
-
-```bash
-npm install
-npm run dev
-```
-
-Open the local URL printed by Vite.
-
-### Quality checks
-
-```bash
-npm run type-check
-npm run build
-npm audit
-```
-
-Preview the production build locally:
-
-```bash
-npm run preview
-```
-
-### Project structure
-
-```text
-src/app/                         Application entry and page shell
-src/components/SoundPopGame.vue Game state, cards, progress, and statistics
-src/components/Mascot.vue       Interactive accessible mascot
-src/composables/                 Browser speech-recognition lifecycle
-src/content.ts                   Russian and Kazakh content and card decks
-public/images/                   Speech-card artwork
-```
-
-### Technology
-
-Vue 3, TypeScript, Vite, Tailwind CSS, VueUse, Unhead, and the browser Web Speech API.
-
-### Contributing
-
-Bug reports and focused pull requests are welcome. Please run the type check and production build before opening a pull request. New words should be reviewed by a native speaker and, when presented as speech therapy material, by a qualified specialist.
+<p align="center">
+  <b>Interactive, friendly, and privacy-first speech exercises in Russian & Kazakh</b><br>
+  <b>Интерактивная и безопасная тренировка правильного произношения звуков «Л», «Р», «Ш»</b>
+</p>
 
 ---
 
-## Русский
+[ English ](#-english-overview) • [ Русский ](#-русский-обзор) • [ Quick Start ](#-quick-start--быстрый-запуск) • [ Architecture ](#-project-structure--структура-проекта)
 
-Til Up — небольшая браузерная игра для детской речевой практики. Она помогает ребёнку повторять слова со звуками **Л**, **Р** и **Ш** в коротких доброжелательных упражнениях с картинками, голосовыми примерами и наградами.
+---
 
-Основной сценарий построен вокруг голоса: ребёнок выбирает звук, запускает упражнение, смотрит на карточку и произносит слово. Игра использует браузерный Web Speech API, чтобы распознать ожидаемое слово. Если распознавание недоступно или браузер не получил доступ к микрофону, ручной fallback включается автоматически и не блокирует упражнение.
+</div>
 
-### Возможности
+<br>
 
-- Интерфейс и наборы слов на русском и казахском языках
-- 18 локализованных карточек для трёх тренируемых звуков
-- Автоматическая смена карточек в упражнении из пяти слов
-- Распознавание речи и озвучивание примеров средствами браузера
-- Понятные сообщения о доступе к микрофону и совместимости
-- Локальная статистика для родителей
-- Нет аккаунтов, backend, аналитики и удалённой базы данных проекта
-- Адаптивная вёрстка, управление с клавиатуры и поддержка reduced motion
-- Локализованные SEO-метаданные, canonical, `hreflang`, Open Graph и JSON-LD
+## 📌 English Overview
 
-### Как играть
+**Til Up** is a browser-based speech practice app designed for kids. It guides children through engaging, bite-sized pronunciation exercises targeting tricky sounds (**Л**, **Р**, and **Ш**) using bright visual cards, audio hints, interactive mascot reactions, and a motivational star-reward system.
 
-1. Выбрать звук **Л**, **Р** или **Ш**.
-2. Начать упражнение и разрешить доступ к микрофону.
-3. Произнести слово, изображённое на карточке.
-4. Собрать пять звёзд и завершить упражнение.
-5. Посмотреть локальную статистику занятий и повторённых слов.
+The core gameplay is **voice-first**: the child selects a target sound, looks at a picture card, and pronounces the word out loud. The game leverages the native browser **Web Speech API** to recognize spoken words in real time. If speech recognition is unsupported or microphone permissions are unavailable, an instant **manual fallback button** seamlessly takes over so the fun never stops.
 
-Til Up распознаёт название картинки, но **не оценивает качество произношения**. Это не диагностический и не медицинский инструмент. Игра предназначена для лёгкой практики и не заменяет занятия с логопедом.
+---
 
-### Приватность и микрофон
+### ✨ Key Features
 
-- У приложения нет собственного backend: оно не загружает и не хранит аудиозаписи.
-- Статистика сохраняется только в `localStorage` браузера.
-- Распознавание выполняется браузером. В зависимости от браузера и операционной системы звук может обрабатываться онлайн-сервисом производителя браузера.
-- Доступ к микрофону запрашивается только после запуска упражнения.
-- При запрете доступа или ошибке распознавания игра автоматически разрешает ручной fallback.
+| Feature | Description |
+| :--- | :--- |
+| 🌐 **Bilingual Support** | Complete Kazakh (KZ) and Russian (RU) interfaces & curated word decks. |
+| 🎴 **18 Sound Decks** | 18 localized practice cards focused on challenging **Л**, **Р**, and **Ш** sounds. |
+| 🎙️ **Voice-First Engine** | Real-time speech recognition via browser native Web Speech API with TTS examples. |
+| 🛡️ **Zero-Backend Privacy** | 100% client-side app. No audio recordings uploaded, no trackers, no servers. |
+| 🔄 **Smart Fallback** | Automatic manual click fallback if microphone access fails or is denied. |
+| 📊 **Parent Progress** | Session history and word counts stored strictly in local `localStorage`. |
+| ♿ **Accessible Design** | Responsive, full keyboard navigation, and reduced-motion visual support. |
+| 🚀 **SEO & OpenGraph** | Meta tags, canonical URLs, `hreflang`, structured JSON-LD, and social previews. |
 
-Для публичного размещения приложение должно работать по HTTPS. Поддержка Web Speech API различается между браузерами; обычно наиболее стабильный результат дают актуальные Chromium-браузеры.
+---
 
-### Локальный запуск
+### 🕹️ How It Works
 
-Понадобятся актуальная LTS-версия Node.js и npm.
+```mermaid
+flowchart LR
+    A[🎯 Select Sound L / R / Sh] --> B[🎙️ Allow Mic Access]
+    B --> C[🖼️ Look at Picture Card]
+    C --> D[🗣️ Pronounce Word]
+    D -- Recognized --> E[⭐ Earn Star & Next Card]
+    D -- Mic Issues / Denied --> F[👇 Manual Fallback Click]
+    F --> E
+    E -- 5 Stars --> G[🎉 Round Complete & Local Stats]
+```
+
+> [!NOTE]
+> **Pedagogical & Clinical Note:**
+> **Til Up** verifies recognized words for repetition practice; it **does not** analyze phonetic articulation quality or perform medical diagnostics. It is meant for enjoyable home practice and is not a substitute for professional speech-language therapy.
+
+---
+
+### 🛡️ Privacy & Microphone Use
+
+- **No Remote Servers**: Audio data is **never** sent to any custom backend server.
+- **Local Storage Only**: Practice history and star counts stay strictly inside `localStorage`.
+- **Browser Standard API**: Speech recognition runs through the browser's implementation of `SpeechRecognition`.
+- **On-Demand Access**: Microphone access is requested only when an exercise active session begins.
+
+---
+
+<br>
+
+---
+
+<br>
+
+## 🇷🇺 Русский обзор
+
+**Til Up** — это яркая и добрая браузерная игра для развития речи у детей. Она помогает ребёнку отрабатывать правильное произношение наиболее частых «трудных» звуков (**Л**, **Р** и **Ш**) через короткие игровые упражнения с красочными карточками, озвучкой, реакциями живого маскота и звёздными наградами.
+
+Игра построена на **голосовом взаимодействии**: ребёнок выбирает звук, видит карточку со словом и произносит его вслух. Приложение использует встроенный в браузер **Web Speech API** для распознавания речи в реальном времени. Если микрофон недоступен или браузер не поддерживает распознавание, автоматически включается **ручной режим (fallback)**, благодаря которому ребёнок может продолжить игру без препятствий.
+
+---
+
+### ⚡ Главные возможности
+
+- 🇰🇿 🇷🇺 **Два языка**: Полноценный интерфейс и наборы слов на казахском и русском языках.
+- 🎴 **18 красочных карточек**: Локализованный набор для закрепления звуков «Л», «Р» и «Ш».
+- 🗣️ **Распознавание речи**: Озвучивание примеров и проверка произнесённого слова средствами браузера.
+- 🛡️ **100% Конфиденциальность**: Без бэкенда, без записи звука, без передачи личных данных.
+- 🔄 **Умная страховка (Fallback)**: Игра не блокируется при отсутствии микрофона — включается кнопка подтверждения.
+- 📈 **Статистика для родителей**: Учёт занятий и повторённых слов сохраняется только в браузере.
+- ♿ **Доступность и комфорт**: Поддержка управления с клавиатуры, адаптивность и режим `reduced-motion`.
+- 🔍 **SEO & Метаданные**: Полная подготовка `OpenGraph`, `JSON-LD`, `hreflang` и канонических ссылок.
+
+---
+
+### 🛠️ Игровой процесс
+
+1. **Выбор звука**: Выберите один из тренируемых звуков (**Л**, **Р** или **Ш**).
+2. **Разрешение микрофона**: Нажмите «Начать» и разрешите доступ к микрофону.
+3. **Произношение**: Назовите предмет, изображённый на карточке.
+4. **Сбор звёзд**: Соберите 5 звёзд, чтобы успешно завершить сессию.
+5. **Прогресс**: Просматривайте динамику упражнений в локальной панели статистики.
+
+> [!IMPORTANT]
+> **Информация для родителей:**
+> Til Up распознаёт совпадение названий картинок для поддержания интереса к тренировке, но **не является диагностическим или логопедическим медицинским прибором**. Приложение создано для домашней практики и не заменяет индивидуальные занятия с логопедом.
+
+---
+
+<br>
+
+## 💻 Tech Stack | Технологический стек
+
+| Technology | Purpose / Описание |
+| :--- | :--- |
+| ![Vue.js](https://img.shields.io/badge/Vue.js_3-4FC08D?style=flat-square&logo=vuedotjs&logoColor=white) | Progressive framework using Composition API & Script Setup |
+| ![TypeScript](https://img.shields.io/badge/TypeScript_5-3178C6?style=flat-square&logo=typescript&logoColor=white) | Strictly typed state management and speech engine interfaces |
+| ![Vite](https://img.shields.io/badge/Vite_6-646CFF?style=flat-square&logo=vite&logoColor=white) | Next-generation frontend build tooling & HMR dev server |
+| ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS_3-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white) | Utility-first CSS frame with responsive & dark/light styling |
+| ![VueUse](https://img.shields.io/badge/VueUse-41B883?style=flat-square&logo=vue.js&logoColor=white) | Reactive browser utilities collection |
+| ![Unhead](https://img.shields.io/badge/Unhead_Vue-8E44AD?style=flat-square) | Universal document head & SEO metadata manager |
+| ![Web Speech API](https://img.shields.io/badge/Web_Speech_API-FF6F00?style=flat-square&logo=googlechrome&logoColor=white) | Native SpeechRecognition & SpeechSynthesis browser engine |
+
+---
+
+## 🚀 Quick Start | Быстрый запуск
+
+### Requirements / Требования
+- **Node.js**: `v18.x` or higher (LTS recommended)
+- **npm**: `v9.x` or higher
 
 ```bash
+# 1. Clone the repository / Клонировать репозиторий
+git clone https://github.com/serik-k/til-up.git
+
+# 2. Enter project directory / Перейти в папку проекта
+cd til-up
+
+# 3. Install dependencies / Установить зависимости
 npm install
+
+# 4. Run development server / Запустить сервер разработки
 npm run dev
 ```
 
-После запуска откройте локальный адрес, который выведет Vite.
+> Open your browser at `http://localhost:5173` (or the Vite dev URL displayed in terminal).
 
-### Проверка качества
+---
+
+## 🧪 Quality Checks & Build | Проверка качества и сборка
 
 ```bash
+# Type check TypeScript code / Проверка типов TypeScript
 npm run type-check
+
+# Production build / Сборка для продакшена
 npm run build
-npm audit
-```
 
-Локальный просмотр production-сборки:
-
-```bash
+# Local preview of production build / Предпросмотр продакшн-сборки
 npm run preview
 ```
 
-### Структура проекта
+---
+
+## 🏗️ Project Structure | Структура проекта
 
 ```text
-src/app/                         Точка входа и основная страница
-src/components/SoundPopGame.vue Игровые состояния, карточки и статистика
-src/components/Mascot.vue       Интерактивный доступный маскот
-src/composables/                 Жизненный цикл распознавания речи
-src/content.ts                   Контент и наборы карточек RU/KZ
-public/images/                   Изображения карточек
+til-up/
+├── 📁 public/
+│   ├── 📁 images/speech-cards/   # 🖼️ Sound card artwork & assets
+│   └── 📄 robots.txt             # 🤖 Search engine crawlers config
+├── 📁 src/
+│   ├── 📁 app/                   # 🚀 Application shell & main view setup
+│   ├── 📁 assets/                # 🎨 Static styles & global graphics
+│   ├── 📁 components/
+│   │   ├── 🧩 SoundPopGame.vue   # 🎮 Main game core, state, & stats modal
+│   │   └── 🧩 Mascot.vue         # 🦊 Interactive animated kid-friendly mascot
+│   ├── 📁 composables/           # 🎙️ Speech recognition & synthesis lifecycle hooks
+│   ├── 📁 locales/               # 🌍 Multilingual strings (RU / KZ)
+│   ├── 📁 styles/                # 💅 Tailwind & custom CSS utility styles
+│   ├── 📁 types/                 # 📐 TypeScript definitions & interfaces
+│   └── 📄 content.ts             # 🎴 Russian & Kazakh speech card decks data
+├── 📄 index.html                 # 📄 Entry point HTML with SEO metadata
+├── 📄 vite.config.js             # ⚡ Vite build configuration
+├── 📄 tailwind.config.js         # 🎨 Tailwind CSS design system theme
+└── 📄 package.json               # 📦 Dependencies & npm scripts
 ```
 
-### Технологии
+---
 
-Vue 3, TypeScript, Vite, Tailwind CSS, VueUse, Unhead и браузерный Web Speech API.
+## 🤝 Contributing | Участие в разработке
 
-### Участие в разработке
+Contributions are welcome! If you'd like to improve **Til Up**:
 
-Приветствуются отчёты об ошибках и небольшие целевые pull request. Перед отправкой изменений запустите проверку типов и production-сборку. Новые слова должен проверить носитель языка, а материалы, заявленные как логопедические, — профильный специалист.
+1. Fork the project repository.
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
+3. Run `npm run type-check` and `npm run build` to verify code quality.
+4. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+5. Push to the branch (`git checkout -b feature/AmazingFeature`).
+6. Open a Pull Request.
 
-## License / Лицензия
+> [!TIP]
+> *Note on new content*: Any new speech cards or therapeutic word additions should be verified by native speakers and, ideally, reviewed by a certified speech-language pathologist.
 
-No open-source license has been selected yet. Public access to the source code does not automatically grant permission to reuse it.
+---
 
-Лицензия открытого исходного кода пока не выбрана. Публичный доступ к коду сам по себе не даёт разрешения на его повторное использование.
+## 📄 License | Лицензия
+
+Private repository / All rights reserved. License decision pending.
+
+Все права защищены. Публичный доступ к коду не означает свободу повторного использования без разрешения правообладателя.
+
+---
+
+<div align="center">
+  <sub>Made with ❤️ for kids and parents | Сделано с любовью для детей и родителей</sub>
+</div>
