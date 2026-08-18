@@ -4,6 +4,7 @@
 
 ### **Bilingual Speech Practice Game for Children | Детская игра для тренировки речи**
 
+[![CI](https://github.com/serik-k/til-up/actions/workflows/ci.yml/badge.svg)](https://github.com/serik-k/til-up/actions/workflows/ci.yml)
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-4FC08D?style=for-the-badge&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-6.0-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
@@ -141,16 +142,9 @@ flowchart LR
 - **npm**: `v9.x` or higher
 
 ```bash
-# 1. Clone the repository / Клонировать репозиторий
 git clone https://github.com/serik-k/til-up.git
-
-# 2. Enter project directory / Перейти в папку проекта
 cd til-up
-
-# 3. Install dependencies / Установить зависимости
 npm install
-
-# 4. Run development server / Запустить сервер разработки
 npm run dev
 ```
 
@@ -161,15 +155,20 @@ npm run dev
 ## 🧪 Quality Checks & Build | Проверка качества и сборка
 
 ```bash
-# Type check TypeScript code / Проверка типов TypeScript
+# Type check
 npm run type-check
 
-# Production build / Сборка для продакшена
+# Type check + production build (same command used by CI)
+npm run check
+
+# Production build
 npm run build
 
-# Local preview of production build / Предпросмотр продакшн-сборки
+# Local preview
 npm run preview
 ```
+
+Every pull request targeting `main` runs the same type-check + production build pipeline in GitHub Actions.
 
 ---
 
@@ -183,9 +182,7 @@ til-up/
 ├── 📁 src/
 │   ├── 📁 app/                   # 🚀 Application shell & main view setup
 │   ├── 📁 assets/                # 🎨 Static styles & global graphics
-│   ├── 📁 components/
-│   │   ├── 🧩 SoundPopGame.vue   # 🎮 Main game core, state, & stats modal
-│   │   └── 🧩 Mascot.vue         # 🦊 Interactive animated kid-friendly mascot
+│   ├── 📁 components/            # 🧩 Game UI and mascot components
 │   ├── 📁 composables/           # 🎙️ Speech recognition & synthesis lifecycle hooks
 │   ├── 📁 locales/               # 🌍 Multilingual strings (RU / KZ)
 │   ├── 📁 styles/                # 💅 Tailwind & custom CSS utility styles
@@ -205,9 +202,9 @@ Contributions are welcome! If you'd like to improve **Til Up**:
 
 1. Fork the project repository.
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3. Run `npm run type-check` and `npm run build` to verify code quality.
+3. Run `npm run check` to verify type safety and the production build.
 4. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-5. Push to the branch (`git checkout -b feature/AmazingFeature`).
+5. Push the branch (`git push origin feature/AmazingFeature`).
 6. Open a Pull Request.
 
 > [!TIP]
